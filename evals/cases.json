@@ -1,0 +1,22 @@
+[
+ {"name": "backend developer", "query": "Python developer who builds REST APIs and services with FastAPI, PostgreSQL and Docker", "relevant_title": "backend|back-end|software engineer|software developer|softwareentwickler|full.?stack|python"},
+ {"name": "frontend developer", "query": "Builds web user interfaces with React, TypeScript and CSS", "relevant_title": "front.?end|react|web developer|ui engineer|full.?stack"},
+ {"name": "machine learning", "query": "Trains and evaluates machine learning models, works with LLMs and PyTorch", "relevant_title": "machine learning|\\bml\\b|\\bai\\b|artificial intelligence|data scientist|llm"},
+ {"name": "data analyst", "query": "Analyses business data with SQL and builds dashboards and reports", "relevant_title": "analyst|analytics|business intelligence|\\bbi\\b|data scientist"},
+ {"name": "devops / cloud", "query": "Runs Kubernetes clusters, CI/CD pipelines and cloud infrastructure on AWS", "relevant_title": "devops|\\bsre\\b|site reliability|cloud|platform engineer|infrastructure|kubernetes"},
+ {"name": "security", "query": "Investigates security incidents, hardens systems and runs penetration tests", "relevant_title": "security|sicherheit|penetration|cyber"},
+ {"name": "sales", "query": "Closes B2B software deals and manages a pipeline of enterprise accounts", "relevant_title": "sales|account executive|account manager|business development|vertrieb"},
+ {"name": "marketing", "query": "Plans campaigns, writes posts and grows a brand's audience on social channels", "relevant_title": "marketing|content|social media|seo|brand|growth"},
+ {"name": "customer support", "query": "Answers customer tickets, solves product problems and keeps clients happy", "relevant_title": "customer (support|success|service|experience|care)|support|kundenservice|kundenbetreuung"},
+ {"name": "product manager", "query": "Owns a product roadmap, writes requirements and works with engineers and designers", "relevant_title": "product (manager|owner|lead)|produktmanager|head of product|product management"},
+ {"name": "designer", "query": "Designs app screens and user flows in Figma and runs usability tests", "relevant_title": "designer|\\bux\\b|\\bui\\b|design"},
+ {"name": "finance / accounting", "query": "Prepares monthly accounts, reconciles ledgers and handles tax filings", "relevant_title": "accountant|accounting|buchhalt|finance|finanz|controller|steuer|bookkeep"},
+ {"name": "recruiter", "query": "Sources candidates, runs interviews and manages hiring pipelines", "relevant_title": "recruit|talent|human resources|\\bhr\\b|people (partner|operations)|personal"},
+ {"name": "project manager", "query": "Plans timelines, coordinates teams and delivers projects on budget", "relevant_title": "project manager|projektmanager|projektleiter|program manager|delivery manager|scrum"},
+ {"name": "QA / testing", "query": "Writes automated tests, finds bugs and checks releases before they ship", "relevant_title": "\\bqa\\b|test|quality"},
+ {"name": "legal", "query": "Drafts and reviews contracts and advises on compliance", "relevant_title": "legal|jurist|lawyer|counsel|compliance|paralegal"},
+ {"name": "writer / editor", "query": "Writes and edits articles, documentation and marketing copy", "relevant_title": "writer|editor|copywriter|redakteur|content"},
+ {"name": "healthcare", "query": "Registered nurse caring for patients on a hospital ward", "relevant_title": "nurse|pflege|medical|health|clinical|arzt"},
+ {"name": "mobile developer", "query": "Builds iOS and Android apps with Swift and Kotlin", "relevant_title": "mobile|\\bios\\b|android|flutter|react native"},
+ {"name": "data engineer", "query": "Builds data pipelines with Spark and Airflow and maintains a data warehouse", "relevant_title": "data engineer|analytics engineer|\\betl\\b|data platform|data architect"}
+]

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Match Agent</title>
+<style>
+  :root { --bg:#f6f5f1; --card:#ffffff; --ink:#1c1b19; --muted:#6b6862; --line:#e2dfd7; --accent:#1f5f4a; --accent-ink:#ffffff; --good:#1f5f4a; --warn:#8a5a00; --chip:#eeece5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141413; --card:#1d1d1b; --ink:#ecebe6; --muted:#9a978f; --line:#2e2d2a; --accent:#6fc3a4; --accent-ink:#10231c; --good:#6fc3a4; --warn:#e0b25a; --chip:#282724; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding:20px 16px 8px; max-width:1100px; margin:0 auto; }
+  h1 { font-size:22px; margin:0; letter-spacing:-0.01em; }
+  header p { margin:4px 0 0; color:var(--muted); }
+  main { max-width:1100px; margin:0 auto; padding:8px 16px 40px; display:grid; gap:16px; grid-template-columns:1fr; }
+  @media (min-width: 900px) { main { grid-template-columns: 380px 1fr; align-items:start; } }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
+  textarea, input[type=text] { width:100%; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:10px; font:inherit; }
+  textarea { min-height:150px; resize:vertical; }
+  button { font:inherit; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); padding:8px 12px; cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { background:var(--chip); border-radius:999px; padding:2px 10px; font-size:13px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .job { border-top:1px solid var(--line); padding:12px 0; display:grid; grid-template-columns:52px 1fr; gap:12px; }
+  .job:first-child { border-top:0; padding-top:0; }
+  .score { font-weight:700; font-size:18px; color:var(--good); text-align:center; line-height:1.1; }
+  .score small { display:block; font-weight:400; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .job a { color:var(--ink); font-weight:600; text-decoration:none; }
+  .job a:hover { text-decoration:underline; }
+  .job ul { margin:6px 0 0; padding-left:18px; }
+  .job li.gap { color:var(--warn); }
+  .job .actions { margin-top:8px; display:flex; gap:6px; }
+  .job .actions button { padding:3px 10px; font-size:13px; }
+  #chat-log { display:flex; flex-direction:column; gap:8px; max-height:340px; overflow:auto; margin-bottom:10px; }
+  .msg { padding:8px 12px; border-radius:10px; max-width:90%; white-space:pre-wrap; }
+  .msg.user { align-self:flex-end; background:var(--accent); color:var(--accent-ink); }
+  .msg.assistant { align-self:flex-start; background:var(--chip); }
+  .steps { font-size:12px; color:var(--muted); align-self:flex-start; }
+  #status { min-height:20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Job Match Agent</h1>
+  <p>Paste a resume, get ranked jobs from a live index, then refine by chatting. <span id="stats" class="muted"></span></p>
+</header>
+<main>
+  <div style="display:grid; gap:16px;">
+    <section>
+      <h2>1. Your resume</h2>
+      <textarea id="resume" placeholder="Paste resume text here. It is turned into a structured profile; the text itself is not stored."></textarea>
+      <div class="row"><button class="primary" id="build">Build profile and match</button><span id="status" class="muted"></span></div>
+    </section>
+    <section id="profile-card" hidden>
+      <h2>Profile <span id="profile-source" class="muted"></span></h2>
+      <div id="profile-head"></div>
+      <div class="chips" id="profile-skills" style="margin-top:8px"></div>
+      <div class="muted" id="prefs" style="margin-top:10px"></div>
+    </section>
+    <section>
+      <h2>3. Refine by chat</h2>
+      <div id="chat-log"><div class="muted">Try: "remote only", "nothing in sales", "more backend roles in India".</div></div>
+      <div class="row" style="flex-wrap:nowrap"><input type="text" id="chat-input" placeholder="Tell the agent what you want"><button id="send">Send</button></div>
+    </section>
+  </div>
+  <section>
+    <h2>2. Matches <span id="match-mode" class="muted"></span></h2>
+    <div id="matches"><div class="muted">No matches yet. Build a profile first.</div></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  for (const child of children) node.append(child);
+  return node;
+}
+async function api(path, options = {}) {
+  const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
+  return data;
+}
+let sessionId = null;
+async function ensureSession() {
+  if (sessionId) return sessionId;
+  try { sessionId = localStorage.getItem("jma_session"); } catch (e) {}
+  if (sessionId) {
+    try { await api(`/api/matches?session_id=${sessionId}&k=1`); return sessionId; }
+    catch (e) { if (!String(e.message).includes("resume")) sessionId = null; else return sessionId; }
+  }
+  sessionId = (await api("/api/session", { method: "POST" })).session_id;
+  try { localStorage.setItem("jma_session", sessionId); } catch (e) {}
+  return sessionId;
+}
+function showPrefs(prefs) {
+  const parts = [];
+  if (prefs.remote_only) parts.push("remote only");
+  if (prefs.location) parts.push("location: " + prefs.location);
+  if (prefs.avoid_keywords && prefs.avoid_keywords.length) parts.push("avoiding: " + prefs.avoid_keywords.join(", "));
+  if (prefs.role_focus) parts.push("focus: " + prefs.role_focus);
+  $("prefs").textContent = parts.length ? "Remembered: " + parts.join(" · ") : "No saved preferences yet.";
+}
+function showProfile(profile) {
+  $("profile-card").hidden = false;
+  $("profile-source").textContent = profile.source === "llm" ? "" : "(keyword fallback, no LLM)";
+  const head = [profile.headline, profile.seniority, profile.years_experience ? profile.years_experience + " yrs" : ""].filter(Boolean).join(" · ");
+  $("profile-head").textContent = profile.source === "llm" && head ? head : "Skills found in the text:";
+  $("profile-skills").replaceChildren(...profile.skills.map((s) => el("span", { className: "chip", textContent: s })));
+}
+function jobCard(job, extra = {}) {
+  const title = el("a", { href: job.url || "#", target: "_blank", rel: "noopener noreferrer", textContent: job.title });
+  const meta = el("div", { className: "muted", textContent: [job.company, job.location || (job.remote ? "Remote" : ""), job.remote ? "remote" : ""].filter(Boolean).join(" · ") });
+  const body = el("div", {}, title, meta);
+  const list = el("ul");
+  for (const reason of extra.reasons || []) list.append(el("li", { textContent: reason }));
+  for (const gap of extra.gaps || []) list.append(el("li", { className: "gap", textContent: "Gap: " + gap }));
+  if (list.children.length) body.append(list);
+  const dismiss = el("button", { textContent: "Not for me" });
+  dismiss.onclick = async () => {
+    await api("/api/feedback", { method: "POST", body: JSON.stringify({ session_id: sessionId, job_id: job.id, verdict: "dismissed" }) });
+    card.remove();
+  };
+  body.append(el("div", { className: "actions" }, dismiss));
+  const score = el("div", { className: "score", textContent: extra.score ?? "" }, el("small", { textContent: extra.score == null ? "" : "match" }));
+  const card = el("div", { className: "job" }, score, body);
+  return card;
+}
+async function loadMatches() {
+  const data = await api(`/api/matches?session_id=${sessionId}&k=8`);
+  showPrefs(data.preferences);
+  const llmRanked = data.matches.some((m) => m.ranked_by === "llm");
+  $("match-mode").textContent = data.matches.length ? (llmRanked ? "(reranked by the LLM)" : "(vector search order)") : "";
+  $("matches").replaceChildren(...(data.matches.length
+    ? data.matches.map((m) => jobCard(m.job, m))
+    : [el("div", { className: "muted", textContent: "Nothing matched. Try relaxing your preferences in the chat." })]));
+}
+$("build").onclick = async () => {
+  const text = $("resume").value.trim();
+  if (text.length < 30) { $("status").textContent = "Paste at least a few lines."; return; }
+  $("build").disabled = true; $("status").textContent = "Reading resume…";
+  try {
+    await ensureSession();
+    showProfile(await api("/api/profile", { method: "POST", body: JSON.stringify({ session_id: sessionId, resume_text: text }) }));
+    $("status").textContent = "Ranking jobs…";
+    await loadMatches();
+    $("status").textContent = "";
+  } catch (e) { $("status").textContent = "Error: " + e.message; }
+  $("build").disabled = false;
+};
+async function send() {
+  const text = $("chat-input").value.trim();
+  if (!text) return;
+  $("chat-input").value = ""; $("send").disabled = true;
+  const log = $("chat-log");
+  log.append(el("div", { className: "msg user", textContent: text }));
+  try {
+    await ensureSession();
+    const data = await api("/api/chat", { method: "POST", body: JSON.stringify({ session_id: sessionId, message: text }) });
+    if (data.steps.length) log.append(el("div", { className: "steps", textContent: "tools: " + data.steps.join(" → ") }));
+    log.append(el("div", { className: "msg assistant", textContent: data.reply }));
+    showPrefs(data.preferences);
+    $("profile-card").hidden = false;
+    if (data.jobs.length) {
+      $("match-mode").textContent = "(from the chat)";
+      $("matches").replaceChildren(...data.jobs.map((job) => jobCard(job)));
+    }
+  } catch (e) { log.append(el("div", { className: "msg assistant", textContent: "Error: " + e.message })); }
+  log.scrollTop = log.scrollHeight; $("send").disabled = false;
+}
+$("send").onclick = send;
+$("chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+api("/api/stats").then((s) => {
+  const sources = Object.keys(s.by_source).length;
+  $("stats").textContent = `${s.total} jobs indexed from ${sources} source${sources === 1 ? "" : "s"}.`;
+}).catch(() => {});
+</script>
+</body>
+</html>
