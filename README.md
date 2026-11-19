@@ -2,6 +2,8 @@
 
 Paste a resume, get jobs ranked for you from a live index of real listings, then refine the results by chatting with an agent that remembers what you told it.
 
+**Live:** https://job-match-agent-seven.vercel.app (add `?demo` to run it on a made-up sample resume)
+
 ## What it does
 
 - **Structured profile from a resume.** The resume text goes to an LLM in JSON mode. The reply is validated with Pydantic; if it fails validation the errors are sent back once for a repair. The raw resume text is not stored.
@@ -73,7 +75,7 @@ Set `GROQ_API_KEY` in the Vercel project's environment variables. Without it the
 | POST | `/api/session` | Start a session |
 | POST | `/api/profile` | `{session_id, resume_text}` to a structured profile |
 | GET | `/api/matches?session_id=` | Ranked matches with scores, reasons and gaps |
-| POST | `/api/chat` | `{session_id, message}` to a reply, the jobs shown and the tools called |
+| POST | `/api/chat` | `{session_id, message}` to a reply, the tools called and the jobs found, with the ones the reply names marked and listed first |
 | POST | `/api/feedback` | Save or dismiss a job |
 | POST | `/api/refresh` | Re-download the sources and sync the index (at most every 30 minutes) |
 | GET | `/api/stats`, `/api/health` | Index size by source, last sync, whether an LLM is configured |
@@ -110,7 +112,7 @@ Reranking raised precision@5 in 11 cases, lowered it in 1 (machine learning, 1.0
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q   # 51 tests, no network or API key needed
+.venv/bin/python -m pytest -q   # 53 tests, no network or API key needed
 ```
 
 The tests use a scripted fake LLM and a hashing embedder. They cover index sync, search filters, vectors reused from the build step, LLM retries and model fallback, profile repair and fallback, reranking (including ids the model invents), the agent loop and its limits, memory, the HTTP API, the source parsers and the rerank eval's scoring.
@@ -133,12 +135,15 @@ Running it against a real model found problems the scripted tests could not, eac
 - The model could not hide a job it had shown in an earlier turn without searching for it again, because the history held only text. The ids of the jobs shown last are now part of its context.
 - After hiding a job, a later turn sometimes tried to hide it again, because nothing in the history said it was done. The stored copy of each reply now starts with what the turn changed. Listing the hidden jobs in the system prompt was tried first and made it worse (4 of 4 replays went looking for the job, against 0 of 4 with the note).
 
+- The fallback model's rerank was cut off: 1,924 of its default 2,048 output tokens went to reasoning, so only a few jobs got a score. Every call now asks for enough output room.
+
 These checks are a handful of manual runs, not a measured success rate.
 
 ## Limits
 
 - Groq's free tier allows 8,000 tokens per minute per model. A resume plus its rerank uses about 5,000 and a chat turn 2,000 to 8,000, so two quick requests in a row can exhaust both models. The app then falls back as described above.
-- The chat panel lists every job the searches returned, not only the ones the reply recommends.
+- The jobs a chat reply recommends are found by matching titles and company names in the reply's text. A job the model describes in other words is listed with the other search results.
+- Most listings are mid-level or senior roles in Europe and the US. A junior profile gets a weak pool, and the reranker shows it with low scores.
 - Search always returns its 6 nearest jobs, even when none is a good match. Narrow filters (remote only, one city) on 841 listings often leave few good ones.
 
 - Sessions have no login; a session id is a random token kept in the browser. On Vercel they do not survive an instance restart (see Deployment).

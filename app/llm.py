@@ -29,6 +29,12 @@ class LLM(Protocol):
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict: ...
 
 
+# Reasoning models spend output tokens on thinking before they write. With a provider's
+# small default limit the answer can be cut off (seen on Groq: 1,924 of 2,048 tokens went
+# to reasoning and only a few jobs got scored), so ask for enough room every time.
+MAX_OUTPUT_TOKENS = 6000
+
+
 class _Retryable(Exception):
     def __init__(self, message: str, wait: float | None = None):
         super().__init__(message)
@@ -102,7 +108,12 @@ class ChatLLM:
 
     def json(self, messages: list[dict]) -> dict:
         message = self._complete(
-            {"messages": messages, "response_format": {"type": "json_object"}, "temperature": 0}
+            {
+                "messages": messages,
+                "response_format": {"type": "json_object"},
+                "temperature": 0,
+                "max_completion_tokens": MAX_OUTPUT_TOKENS,
+            }
         )
         try:
             data = json.loads(message.get("content") or "")
@@ -113,7 +124,7 @@ class ChatLLM:
         return data
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
-        payload: dict = {"messages": messages, "temperature": 0.2}
+        payload: dict = {"messages": messages, "temperature": 0.2, "max_completion_tokens": MAX_OUTPUT_TOKENS}
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"

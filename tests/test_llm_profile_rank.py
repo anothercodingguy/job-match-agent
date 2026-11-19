@@ -73,6 +73,19 @@ def test_llm_moves_to_the_next_model_when_retry_after_is_long():
     assert attempts == ["big", "small"] and slept == []  # no pointless retries, no sleeping
 
 
+def test_llm_asks_for_enough_output_room():
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return ok("{}")
+
+    llm, _ = make_llm(handler)
+    llm.json([{"role": "user", "content": "hi"}])
+    llm.chat([{"role": "user", "content": "hi"}])
+    assert [payload["max_completion_tokens"] for payload in sent] == [6000, 6000]
+
+
 def test_llm_falls_back_to_next_model():
     def handler(request):
         model = json.loads(request.content)["model"]

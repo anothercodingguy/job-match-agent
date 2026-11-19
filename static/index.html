@@ -4,182 +4,444 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Job Match Agent</title>
+<meta name="description" content="Paste a resume, get jobs ranked from a live index, then refine by chatting with an agent that remembers what you told it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#f6f5f1; --card:#ffffff; --ink:#1c1b19; --muted:#6b6862; --line:#e2dfd7; --accent:#1f5f4a; --accent-ink:#ffffff; --good:#1f5f4a; --warn:#8a5a00; --chip:#eeece5; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#141413; --card:#1d1d1b; --ink:#ecebe6; --muted:#9a978f; --line:#2e2d2a; --accent:#6fc3a4; --accent-ink:#10231c; --good:#6fc3a4; --warn:#e0b25a; --chip:#282724; }
+  :root {
+    --paper:#f3f0e8; --card:#faf8f3; --ink:#17160f; --muted:#6d685c; --line:#c9c3b3; --soft:#e7e2d5;
+    --accent:#d4442a; --accent-ink:#fffaf5; --good:#2c6a4d; --warn:#8f6200; --grid:rgba(23,22,15,.045);
+    --serif:"Instrument Serif", "Iowan Old Style", Georgia, serif;
+    --sans:"Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { padding:20px 16px 8px; max-width:1100px; margin:0 auto; }
-  h1 { font-size:22px; margin:0; letter-spacing:-0.01em; }
-  header p { margin:4px 0 0; color:var(--muted); }
-  main { max-width:1100px; margin:0 auto; padding:8px 16px 40px; display:grid; gap:16px; grid-template-columns:1fr; }
-  @media (min-width: 900px) { main { grid-template-columns: 380px 1fr; align-items:start; } }
-  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
-  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
-  textarea, input[type=text] { width:100%; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:10px; font:inherit; }
-  textarea { min-height:150px; resize:vertical; }
-  button { font:inherit; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); padding:8px 12px; cursor:pointer; }
-  button.primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#0f0e0b; --card:#161511; --ink:#ebe7dc; --muted:#989284; --line:#37342c; --soft:#1f1d18;
+      --accent:#ff6a48; --accent-ink:#1a0b06; --good:#7dc7a2; --warn:#e2b45c; --grid:rgba(235,231,220,.035);
+    }
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body {
+    margin:0; color:var(--ink); font:15px/1.55 var(--sans);
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 100% 32px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 32px 100%,
+      var(--paper);
+  }
+  a { color:inherit; }
+  .wrap { max-width:1180px; margin:0 auto; padding:0 16px; }
+  .mono { font-family:var(--mono); font-size:11.5px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
+
+  /* header */
+  header { padding:28px 0 18px; }
+  .top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .top nav { display:flex; gap:16px; }
+  .top nav a { text-decoration:none; border-bottom:1px dashed var(--line); padding-bottom:1px; }
+  .top nav a:hover { color:var(--accent); border-color:var(--accent); }
+  h1 { font:400 clamp(40px, 7vw, 72px)/.95 var(--serif); letter-spacing:-.02em; margin:14px 0 10px; }
+  h1 em { color:var(--accent); }
+  .lede { max-width:620px; color:var(--muted); margin:0; font-size:16px; }
+
+  /* pipeline strip */
+  .pipeline { display:grid; grid-template-columns:repeat(2, 1fr); margin:22px 0 20px; border:1px dashed var(--line); background:var(--card); }
+  @media (min-width:860px) { .pipeline { grid-template-columns:repeat(4, 1fr); } }
+  .stage { padding:12px 14px; border-right:1px dashed var(--line); border-bottom:1px dashed var(--line); min-width:0; }
+  .stage b { display:block; font:400 20px/1.2 var(--serif); margin-top:2px; }
+  .stage span.state { display:block; font-size:13px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .stage .mono::before { content:""; display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--line); margin-right:7px; vertical-align:1px; transition:background .3s; }
+  .stage.on .mono::before { background:var(--good); }
+  .stage.warn .mono::before { background:var(--warn); }
+  .stage.busy .mono::before { background:var(--accent); animation:pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:.25; } }
+
+  /* layout */
+  main { display:grid; gap:16px; grid-template-columns:minmax(0, 1fr); padding-bottom:48px; }
+  @media (min-width:940px) { main { grid-template-columns:400px minmax(0, 1fr); align-items:start; } .side { position:sticky; top:14px; } }
+  .side { display:grid; gap:16px; min-width:0; }
+  .panel { background:var(--card); border:1px dashed var(--line); padding:16px; min-width:0; }
+  .panel > header { padding:0 0 10px; display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  h2 { font:400 24px/1.1 var(--serif); margin:0; }
+
+  textarea, input[type=text] { width:100%; background:var(--paper); color:var(--ink); border:1px solid var(--line); border-radius:2px; padding:10px 12px; font:14px/1.5 var(--sans); }
+  textarea { min-height:140px; resize:vertical; font-family:var(--mono); font-size:12.5px; }
+  textarea:focus, input:focus, button:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  button { font:500 14px/1 var(--sans); border-radius:2px; border:1px solid var(--line); background:transparent; color:var(--ink); padding:9px 13px; cursor:pointer; transition:background .15s, color .15s, border-color .15s, transform .1s; }
+  button:hover:not(:disabled) { border-color:var(--ink); }
+  button:active:not(:disabled) { transform:translateY(1px); }
+  button.primary { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+  button.primary:hover:not(:disabled) { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  button.link { border:0; padding:0; color:var(--muted); text-decoration:underline dashed; text-underline-offset:3px; font-weight:400; }
+  button.link:hover { color:var(--accent); }
   button:disabled { opacity:.5; cursor:default; }
-  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  .note { font-size:13px; color:var(--muted); }
   .chips { display:flex; flex-wrap:wrap; gap:6px; }
-  .chip { background:var(--chip); border-radius:999px; padding:2px 10px; font-size:13px; }
-  .muted { color:var(--muted); font-size:13px; }
-  .job { border-top:1px solid var(--line); padding:12px 0; display:grid; grid-template-columns:52px 1fr; gap:12px; }
-  .job:first-child { border-top:0; padding-top:0; }
-  .score { font-weight:700; font-size:18px; color:var(--good); text-align:center; line-height:1.1; }
-  .score small { display:block; font-weight:400; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
-  .job a { color:var(--ink); font-weight:600; text-decoration:none; }
-  .job a:hover { text-decoration:underline; }
-  .job ul { margin:6px 0 0; padding-left:18px; }
-  .job li.gap { color:var(--warn); }
-  .job .actions { margin-top:8px; display:flex; gap:6px; }
-  .job .actions button { padding:3px 10px; font-size:13px; }
-  #chat-log { display:flex; flex-direction:column; gap:8px; max-height:340px; overflow:auto; margin-bottom:10px; }
-  .msg { padding:8px 12px; border-radius:10px; max-width:90%; white-space:pre-wrap; }
-  .msg.user { align-self:flex-end; background:var(--accent); color:var(--accent-ink); }
-  .msg.assistant { align-self:flex-start; background:var(--chip); }
-  .steps { font-size:12px; color:var(--muted); align-self:flex-start; }
-  #status { min-height:20px; }
+  .chip { font:11.5px/1 var(--mono); border:1px solid var(--line); padding:5px 8px; border-radius:2px; background:var(--paper); }
+  .chip.memory { border-color:var(--good); color:var(--good); }
+  .flag { font-size:13px; color:var(--warn); border-left:2px solid var(--warn); padding:2px 0 2px 10px; margin:10px 0 0; }
+  [hidden] { display:none !important; }
+
+  /* profile */
+  #profile-head { font:400 21px/1.25 var(--serif); }
+  #profile-meta { margin:4px 0 10px; }
+
+  /* chat */
+  #chat-log { display:flex; flex-direction:column; gap:8px; max-height:360px; overflow:auto; margin-bottom:10px; scrollbar-width:thin; }
+  .msg { padding:9px 12px; max-width:92%; white-space:pre-wrap; overflow-wrap:anywhere; font-size:14px; animation:rise .25s ease both; }
+  .msg.user { align-self:flex-end; background:var(--ink); color:var(--paper); }
+  .msg.assistant { align-self:flex-start; background:var(--soft); }
+  .msg.error { align-self:flex-start; border-left:2px solid var(--accent); color:var(--accent); padding-left:10px; }
+  .trace { align-self:flex-start; display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+  .trace .chip { font-size:10.5px; padding:4px 6px; color:var(--muted); }
+  .trace .arrow { color:var(--line); font-family:var(--mono); font-size:11px; }
+  .typing { align-self:flex-start; display:flex; gap:4px; padding:12px; background:var(--soft); }
+  .typing i { width:6px; height:6px; border-radius:50%; background:var(--muted); animation:pulse 1s ease-in-out infinite; }
+  .typing i:nth-child(2) { animation-delay:.15s; } .typing i:nth-child(3) { animation-delay:.3s; }
+  .ask { display:flex; gap:8px; }
+  #suggestions { margin-bottom:10px; }
+  #suggestions button { font:11.5px/1 var(--mono); padding:6px 8px; color:var(--muted); }
+  #suggestions button:hover { color:var(--accent); border-color:var(--accent); }
+
+  /* matches */
+  .job { display:grid; grid-template-columns:58px minmax(0, 1fr); gap:14px; padding:16px 0; border-top:1px dashed var(--line); animation:rise .4s ease both; }
+  .job:first-child { border-top:0; padding-top:4px; }
+  .job.removing { opacity:0; transform:translateX(12px); transition:opacity .2s, transform .2s; }
+  @keyframes rise { from { opacity:0; transform:translateY(8px); } }
+  .rank { font:11.5px/1 var(--mono); color:var(--muted); padding-top:6px; }
+  .score { font:400 38px/.9 var(--serif); color:var(--ink); }
+  .score + .bar { height:3px; background:var(--soft); margin-top:6px; }
+  .bar i { display:block; height:100%; background:var(--accent); transition:width .6s cubic-bezier(.2,.8,.2,1); }
+  .job h3 { font:600 16px/1.3 var(--sans); margin:0; }
+  .job h3 a { text-decoration:none; background:linear-gradient(var(--accent), var(--accent)) 0 100% / 0 1px no-repeat; transition:background-size .25s; }
+  .job h3 a:hover { background-size:100% 1px; }
+  .where { color:var(--muted); font-size:13.5px; margin-top:1px; }
+  .tag { font:10.5px/1 var(--mono); text-transform:uppercase; letter-spacing:.05em; border:1px solid var(--line); padding:3px 5px; margin-left:6px; color:var(--muted); vertical-align:1px; white-space:nowrap; }
+  .tag.pick { border-color:var(--accent); color:var(--accent); }
+  .why { list-style:none; margin:9px 0 0; padding:0; display:grid; gap:3px; font-size:14px; }
+  .why li { padding-left:20px; position:relative; }
+  .why li::before { position:absolute; left:0; font-family:var(--mono); }
+  .why li.fit::before { content:"+"; color:var(--good); }
+  .why li.gap { color:var(--muted); } .why li.gap::before { content:"–"; color:var(--warn); }
+  .job .actions { margin-top:10px; }
+  .job .actions button { font-size:12.5px; padding:6px 9px; color:var(--muted); }
+  .group { margin:18px 0 0; padding-top:12px; border-top:1px solid var(--line); }
+  .empty { padding:36px 8px; text-align:center; color:var(--muted); }
+  .empty b { display:block; font:400 26px/1.2 var(--serif); color:var(--ink); margin-bottom:4px; }
+  .skeleton { height:74px; margin:14px 0; background:linear-gradient(90deg, var(--soft) 25%, var(--card) 37%, var(--soft) 63%) 0 0 / 400% 100%; animation:shimmer 1.3s linear infinite; }
+  @keyframes shimmer { to { background-position:-100% 0; } }
+
+  footer { border-top:1px dashed var(--line); padding:16px 0 40px; color:var(--muted); font-size:13px; display:flex; gap:8px 20px; flex-wrap:wrap; justify-content:space-between; }
+  footer a:hover { color:var(--accent); }
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>Job Match Agent</h1>
-  <p>Paste a resume, get ranked jobs from a live index, then refine by chatting. <span id="stats" class="muted"></span></p>
-</header>
-<main>
-  <div style="display:grid; gap:16px;">
-    <section>
-      <h2>1. Your resume</h2>
-      <textarea id="resume" placeholder="Paste resume text here. It is turned into a structured profile; the text itself is not stored."></textarea>
-      <div class="row"><button class="primary" id="build">Build profile and match</button><span id="status" class="muted"></span></div>
-    </section>
-    <section id="profile-card" hidden>
-      <h2>Profile <span id="profile-source" class="muted"></span></h2>
-      <div id="profile-head"></div>
-      <div class="chips" id="profile-skills" style="margin-top:8px"></div>
-      <div class="muted" id="prefs" style="margin-top:10px"></div>
-    </section>
-    <section>
-      <h2>3. Refine by chat</h2>
-      <div id="chat-log"><div class="muted">Try: "remote only", "nothing in sales", "more backend roles in India".</div></div>
-      <div class="row" style="flex-wrap:nowrap"><input type="text" id="chat-input" placeholder="Tell the agent what you want"><button id="send">Send</button></div>
-    </section>
+<div class="wrap">
+  <header>
+    <div class="top">
+      <span class="mono">Resume → profile → retrieve → rerank → refine</span>
+      <nav class="mono">
+        <a href="https://github.com/anothercodingguy/job-match-agent" target="_blank" rel="noopener noreferrer">Source</a>
+        <a href="https://github.com/anothercodingguy/job-match-agent#evaluation" target="_blank" rel="noopener noreferrer">Evals</a>
+      </nav>
+    </div>
+    <h1>Job Match <em>Agent</em></h1>
+    <p class="lede">Paste a resume. It becomes a structured profile, the closest jobs are pulled from a live index, a language model reranks them with reasons, and a chat agent with memory refines the list.</p>
+  </header>
+
+  <div class="pipeline" aria-label="What has run so far">
+    <div class="stage" id="st-profile"><span class="mono">01 Profile</span><b>Resume to JSON</b><span class="state">waiting for a resume</span></div>
+    <div class="stage" id="st-index"><span class="mono">02 Retrieve</span><b>Semantic search</b><span class="state">loading index…</span></div>
+    <div class="stage" id="st-rank"><span class="mono">03 Rerank</span><b>Scores with reasons</b><span class="state">not run yet</span></div>
+    <div class="stage" id="st-memory"><span class="mono">04 Remember</span><b>Agent memory</b><span class="state">nothing saved yet</span></div>
   </div>
-  <section>
-    <h2>2. Matches <span id="match-mode" class="muted"></span></h2>
-    <div id="matches"><div class="muted">No matches yet. Build a profile first.</div></div>
-  </section>
-</main>
+
+  <main>
+    <div class="side">
+      <section class="panel">
+        <header><h2>Your resume</h2><button class="link" id="sample" type="button">use a sample</button></header>
+        <label class="mono" for="resume" hidden>Resume text</label>
+        <textarea id="resume" placeholder="Paste resume text here. It is turned into a structured profile. The text itself is not stored."></textarea>
+        <div class="row"><button class="primary" id="build" type="button">Build profile and match</button><span id="status" class="note" role="status" aria-live="polite"></span></div>
+      </section>
+
+      <section class="panel" id="profile-card" hidden>
+        <header><h2>Profile</h2><span class="mono" id="profile-source"></span></header>
+        <div id="profile-head"></div>
+        <div class="mono" id="profile-meta"></div>
+        <div class="chips" id="profile-skills"></div>
+        <p class="flag" id="profile-flag" hidden>The language model was unavailable or rate-limited, so this profile is a keyword match only.</p>
+      </section>
+
+      <section class="panel">
+        <header><h2>Refine by chat</h2><button class="link" id="reset" type="button">start over</button></header>
+        <div class="chips" id="memory-chips" hidden></div>
+        <div id="chat-log" aria-live="polite"></div>
+        <div class="chips" id="suggestions">
+          <button type="button">Remote only, nothing in sales</button>
+          <button type="button">Which backend roles fit me?</button>
+          <button type="button">Hide the first one</button>
+        </div>
+        <div class="ask"><input type="text" id="chat-input" aria-label="Message to the agent" placeholder="Tell the agent what you want" maxlength="2000"><button id="send" type="button">Send</button></div>
+      </section>
+    </div>
+
+    <section class="panel" id="results">
+      <header><h2 id="results-title">Matches</h2><span class="mono" id="match-mode"></span></header>
+      <p class="flag" id="rank-flag" hidden>The language model was unavailable or rate-limited, so these are in plain vector-search order, without reasons.</p>
+      <div id="matches"><div class="empty"><b>No matches yet.</b>Paste a resume on the left, or use the sample, to see ranked jobs here.</div></div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Listings from the public APIs of Arbeitnow, Remotive, Jobicy and Himalayas. Every job links to its source.</span>
+    <span>Built by <a href="https://suyash.website" target="_blank" rel="noopener noreferrer">Suyash Singh</a></span>
+  </footer>
+</div>
+
 <script>
+const SAMPLE = `Arjun Mehta (a made-up person)
+Pune, India · open to remote
+
+EXPERIENCE
+Backend Engineer, Kiteworks Payments (Jul 2023 - present)
+- Own the payouts service: REST and gRPC APIs in Python (FastAPI) on PostgreSQL, about 2 million requests a day
+- Cut p95 latency from 480 ms to 190 ms with query tuning, Redis caching and connection pooling
+- Moved nightly settlement jobs to Kafka consumers and made them idempotent
+- Run the service on AWS with Docker and Kubernetes; on call one week in six
+
+Software Engineer, Lumen Labs (Jun 2022 - Jun 2023)
+- Built internal APIs and a React admin console for a logistics product
+- Wrote the pytest suite and GitHub Actions pipeline the team still uses
+
+EDUCATION
+B.Tech in Computer Science, 2018-2022
+
+SKILLS
+Python, FastAPI, PostgreSQL, Redis, Kafka, Docker, Kubernetes, AWS, gRPC, SQL, React, TypeScript, pytest, Git, Linux`;
+
 const $ = (id) => document.getElementById(id);
 function el(tag, props = {}, ...children) {
   const node = Object.assign(document.createElement(tag), props);
-  for (const child of children) node.append(child);
+  for (const child of children) if (child != null) node.append(child);
   return node;
+}
+function stage(id, text, state = "on") {
+  const node = $(id);
+  node.className = "stage " + state;
+  node.querySelector(".state").textContent = text;
+}
+
+class ApiError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
 }
 async function api(path, options = {}) {
   const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : response.statusText);
+  if (!response.ok) {
+    const detail = typeof data.detail === "string" ? data.detail : data.detail ? JSON.stringify(data.detail) : response.statusText;
+    throw new ApiError(response.status, detail || "request failed");
+  }
   return data;
 }
+
+// --- session: a random id kept in this browser. The server may forget it (a restart,
+// or a new instance on a serverless host), so every call can start a fresh one. ---
 let sessionId = null;
+let hasProfile = false;
+function remember(id) { sessionId = id; try { localStorage.setItem("jma_session", id); } catch (e) {} }
+async function newSession() { remember((await api("/api/session", { method: "POST" })).session_id); hasProfile = false; }
 async function ensureSession() {
-  if (sessionId) return sessionId;
+  if (sessionId) return;
   try { sessionId = localStorage.getItem("jma_session"); } catch (e) {}
-  if (sessionId) {
-    try { await api(`/api/matches?session_id=${sessionId}&k=1`); return sessionId; }
-    catch (e) { if (!String(e.message).includes("resume")) sessionId = null; else return sessionId; }
+  if (!sessionId) await newSession();
+}
+const unknownSession = (e) => e instanceof ApiError && e.status === 404 && /session/.test(e.message);
+/** Runs a call that needs the session. If the server no longer knows it, starts a new
+ *  one, sends the resume again when there is one, and tries once more. */
+async function withSession(call) {
+  await ensureSession();
+  try { return await call(); }
+  catch (e) {
+    if (!unknownSession(e)) throw e;
+    await newSession();
+    const text = $("resume").value.trim();
+    if (text.length >= 30) await sendResume(text);
+    return await call();
   }
-  sessionId = (await api("/api/session", { method: "POST" })).session_id;
-  try { localStorage.setItem("jma_session", sessionId); } catch (e) {}
-  return sessionId;
+}
+
+// --- profile ---
+async function sendResume(text) {
+  const profile = await api("/api/profile", { method: "POST", body: JSON.stringify({ session_id: sessionId, resume_text: text }) });
+  hasProfile = true;
+  showProfile(profile);
+  return profile;
+}
+function showProfile(profile) {
+  const llm = profile.source === "llm";
+  $("profile-card").hidden = false;
+  $("profile-source").textContent = llm ? "extracted by the LLM" : "keyword fallback";
+  $("profile-flag").hidden = llm;
+  $("profile-head").textContent = llm && profile.headline ? profile.headline : "Skills found in the text";
+  $("profile-meta").textContent = llm
+    ? [profile.seniority, profile.years_experience ? profile.years_experience + " yrs experience" : "", (profile.locations || []).join(", ")].filter(Boolean).join(" · ")
+    : "";
+  $("profile-skills").replaceChildren(...profile.skills.map((s) => el("span", { className: "chip", textContent: s })));
+  stage("st-profile", llm ? `${profile.skills.length} skills, validated JSON` : "keyword fallback (no LLM)", llm ? "on" : "warn");
 }
 function showPrefs(prefs) {
   const parts = [];
   if (prefs.remote_only) parts.push("remote only");
   if (prefs.location) parts.push("location: " + prefs.location);
-  if (prefs.avoid_keywords && prefs.avoid_keywords.length) parts.push("avoiding: " + prefs.avoid_keywords.join(", "));
+  for (const word of prefs.avoid_keywords || []) parts.push("avoid: " + word);
   if (prefs.role_focus) parts.push("focus: " + prefs.role_focus);
-  $("prefs").textContent = parts.length ? "Remembered: " + parts.join(" · ") : "No saved preferences yet.";
+  $("memory-chips").hidden = !parts.length;
+  $("memory-chips").replaceChildren(...parts.map((p) => el("span", { className: "chip memory", textContent: p })));
+  $("memory-chips").style.marginBottom = parts.length ? "10px" : "";
+  stage("st-memory", parts.length ? parts.join(" · ") : "nothing saved yet", parts.length ? "on" : "");
 }
-function showProfile(profile) {
-  $("profile-card").hidden = false;
-  $("profile-source").textContent = profile.source === "llm" ? "" : "(keyword fallback, no LLM)";
-  const head = [profile.headline, profile.seniority, profile.years_experience ? profile.years_experience + " yrs" : ""].filter(Boolean).join(" · ");
-  $("profile-head").textContent = profile.source === "llm" && head ? head : "Skills found in the text:";
-  $("profile-skills").replaceChildren(...profile.skills.map((s) => el("span", { className: "chip", textContent: s })));
-}
-function jobCard(job, extra = {}) {
-  const title = el("a", { href: job.url || "#", target: "_blank", rel: "noopener noreferrer", textContent: job.title });
-  const meta = el("div", { className: "muted", textContent: [job.company, job.location || (job.remote ? "Remote" : ""), job.remote ? "remote" : ""].filter(Boolean).join(" · ") });
-  const body = el("div", {}, title, meta);
-  const list = el("ul");
-  for (const reason of extra.reasons || []) list.append(el("li", { textContent: reason }));
-  for (const gap of extra.gaps || []) list.append(el("li", { className: "gap", textContent: "Gap: " + gap }));
-  if (list.children.length) body.append(list);
-  const dismiss = el("button", { textContent: "Not for me" });
+
+// --- job cards ---
+function jobCard(job, index, extra = {}) {
+  const source = (job.id || "").split(":")[0];
+  const title = el("h3", {}, el("a", { href: job.url || "#", target: "_blank", rel: "noopener noreferrer", textContent: job.title }));
+  if (job.recommended) title.append(el("span", { className: "tag pick", textContent: "in the reply" }));
+  const where = el("div", { className: "where", textContent: [job.company, job.location || (job.remote ? "Remote" : "")].filter(Boolean).join(" · ") });
+  if (job.remote) where.append(el("span", { className: "tag", textContent: "remote" }));
+  if (source) where.append(el("span", { className: "tag", textContent: source }));
+  const body = el("div", {}, title, where);
+  const why = el("ul", { className: "why" });
+  for (const reason of extra.reasons || []) why.append(el("li", { className: "fit", textContent: reason }));
+  for (const gap of extra.gaps || []) why.append(el("li", { className: "gap", textContent: gap }));
+  if (why.children.length) body.append(why);
+  const dismiss = el("button", { type: "button", textContent: "Not for me" });
   dismiss.onclick = async () => {
-    await api("/api/feedback", { method: "POST", body: JSON.stringify({ session_id: sessionId, job_id: job.id, verdict: "dismissed" }) });
-    card.remove();
+    dismiss.disabled = true;
+    try {
+      await withSession(() => api("/api/feedback", { method: "POST", body: JSON.stringify({ session_id: sessionId, job_id: job.id, verdict: "dismissed" }) }));
+      card.classList.add("removing");
+      setTimeout(() => card.remove(), 200);
+    } catch (e) { dismiss.disabled = false; dismiss.textContent = "Could not hide it. Try again"; }
   };
   body.append(el("div", { className: "actions" }, dismiss));
-  const score = el("div", { className: "score", textContent: extra.score ?? "" }, el("small", { textContent: extra.score == null ? "" : "match" }));
-  const card = el("div", { className: "job" }, score, body);
+  const left = extra.score == null
+    ? el("div", { className: "rank", textContent: String(index + 1).padStart(2, "0") })
+    : el("div", {}, el("div", { className: "score", textContent: extra.score }), el("div", { className: "bar" }, el("i", { style: `width:${extra.score}%` })));
+  const card = el("div", { className: "job" }, left, body);
+  card.style.animationDelay = Math.min(index, 8) * 45 + "ms";
   return card;
 }
+function skeletons() { $("matches").replaceChildren(...[0, 1, 2, 3].map(() => el("div", { className: "skeleton" }))); }
+
 async function loadMatches() {
-  const data = await api(`/api/matches?session_id=${sessionId}&k=8`);
+  skeletons();
+  stage("st-rank", "ranking…", "busy");
+  const data = await withSession(() => api(`/api/matches?session_id=${sessionId}&k=8`));
   showPrefs(data.preferences);
   const llmRanked = data.matches.some((m) => m.ranked_by === "llm");
-  $("match-mode").textContent = data.matches.length ? (llmRanked ? "(reranked by the LLM)" : "(vector search order)") : "";
+  $("results-title").textContent = "Matches";
+  $("match-mode").textContent = data.matches.length ? (llmRanked ? "reranked by the LLM" : "vector order") : "";
+  $("rank-flag").hidden = llmRanked || !data.matches.length;
+  stage("st-rank", data.matches.length ? (llmRanked ? `top ${data.matches.length} scored by the LLM` : "vector order (no LLM)") : "nothing matched", llmRanked ? "on" : "warn");
   $("matches").replaceChildren(...(data.matches.length
-    ? data.matches.map((m) => jobCard(m.job, m))
-    : [el("div", { className: "muted", textContent: "Nothing matched. Try relaxing your preferences in the chat." })]));
+    ? data.matches.map((m, i) => jobCard(m.job, i, m))
+    : [el("div", { className: "empty" }, el("b", { textContent: "Nothing matched." }), "Try relaxing your preferences in the chat.")]));
 }
+
+$("sample").onclick = () => { $("resume").value = SAMPLE; $("resume").focus(); };
 $("build").onclick = async () => {
   const text = $("resume").value.trim();
   if (text.length < 30) { $("status").textContent = "Paste at least a few lines."; return; }
-  $("build").disabled = true; $("status").textContent = "Reading resume…";
+  $("build").disabled = true; $("status").textContent = "Reading the resume…";
+  stage("st-profile", "extracting…", "busy");
+  skeletons();
   try {
-    await ensureSession();
-    showProfile(await api("/api/profile", { method: "POST", body: JSON.stringify({ session_id: sessionId, resume_text: text }) }));
+    await withSession(() => sendResume(text));
     $("status").textContent = "Ranking jobs…";
     await loadMatches();
     $("status").textContent = "";
-  } catch (e) { $("status").textContent = "Error: " + e.message; }
+  } catch (e) {
+    $("status").textContent = "Something went wrong: " + e.message;
+    if (!hasProfile) stage("st-profile", "failed", "warn");
+    $("matches").replaceChildren(el("div", { className: "empty" }, el("b", { textContent: "That did not work." }), "Try again in a moment."));
+  }
   $("build").disabled = false;
 };
-async function send() {
-  const text = $("chat-input").value.trim();
-  if (!text) return;
+
+// --- chat ---
+function showChatJobs(jobs) {
+  const picked = jobs.filter((job) => job.recommended);
+  const rest = jobs.filter((job) => !job.recommended);
+  $("results-title").textContent = "From the chat";
+  $("match-mode").textContent = picked.length ? `${picked.length} named in the reply` : "search results";
+  $("rank-flag").hidden = true;
+  const nodes = picked.map((job, i) => jobCard(job, i));
+  if (picked.length && rest.length) nodes.push(el("div", { className: "group mono", textContent: "Other results from the same searches" }));
+  nodes.push(...rest.map((job, i) => jobCard(job, picked.length + i)));
+  $("matches").replaceChildren(...nodes);
+}
+async function send(preset) {
+  const text = (preset ?? $("chat-input").value).trim();
+  if (!text || $("send").disabled) return;
   $("chat-input").value = ""; $("send").disabled = true;
   const log = $("chat-log");
   log.append(el("div", { className: "msg user", textContent: text }));
+  const typing = el("div", { className: "typing" }, el("i"), el("i"), el("i"));
+  log.append(typing); log.scrollTop = log.scrollHeight;
   try {
-    await ensureSession();
-    const data = await api("/api/chat", { method: "POST", body: JSON.stringify({ session_id: sessionId, message: text }) });
-    if (data.steps.length) log.append(el("div", { className: "steps", textContent: "tools: " + data.steps.join(" → ") }));
+    const data = await withSession(() => api("/api/chat", { method: "POST", body: JSON.stringify({ session_id: sessionId, message: text }) }));
+    typing.remove();
+    if (data.steps.length) {
+      const trace = el("div", { className: "trace", title: "Tools the agent called for this message" });
+      data.steps.forEach((step, i) => {
+        if (i) trace.append(el("span", { className: "arrow", textContent: "→" }));
+        trace.append(el("span", { className: "chip", textContent: step }));
+      });
+      log.append(trace);
+    }
     log.append(el("div", { className: "msg assistant", textContent: data.reply }));
     showPrefs(data.preferences);
-    $("profile-card").hidden = false;
-    if (data.jobs.length) {
-      $("match-mode").textContent = "(from the chat)";
-      $("matches").replaceChildren(...data.jobs.map((job) => jobCard(job)));
-    }
-  } catch (e) { log.append(el("div", { className: "msg assistant", textContent: "Error: " + e.message })); }
-  log.scrollTop = log.scrollHeight; $("send").disabled = false;
+    if (data.jobs.length) showChatJobs(data.jobs);
+  } catch (e) {
+    typing.remove();
+    log.append(el("div", { className: "msg error", textContent: "That did not go through: " + e.message }));
+  }
+  log.scrollTop = log.scrollHeight; $("send").disabled = false; $("chat-input").focus();
 }
-$("send").onclick = send;
+$("send").onclick = () => send();
 $("chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
-api("/api/stats").then((s) => {
-  const sources = Object.keys(s.by_source).length;
-  $("stats").textContent = `${s.total} jobs indexed from ${sources} source${sources === 1 ? "" : "s"}.`;
-}).catch(() => {});
+for (const button of $("suggestions").querySelectorAll("button")) button.onclick = () => send(button.textContent);
+
+// --- start over: a new session, so the server-side memory is left behind ---
+const EMPTY = $("matches").innerHTML;
+$("reset").onclick = async () => {
+  $("reset").disabled = true;
+  try {
+    await newSession();
+    $("resume").value = ""; $("status").textContent = "";
+    $("profile-card").hidden = true; $("rank-flag").hidden = true;
+    $("chat-log").replaceChildren();
+    $("results-title").textContent = "Matches"; $("match-mode").textContent = "";
+    $("matches").innerHTML = EMPTY;
+    showPrefs({});
+    stage("st-profile", "waiting for a resume", ""); stage("st-rank", "not run yet", "");
+  } catch (e) { $("status").textContent = "Could not start over: " + e.message; }
+  $("reset").disabled = false;
+};
+
+// A link ending in ?demo fills in the sample resume and runs it, for a one-click look.
+if (new URLSearchParams(location.search).has("demo")) { $("resume").value = SAMPLE; $("build").click(); }
+
+// --- index status ---
+Promise.all([api("/api/stats"), api("/api/health")]).then(([stats, health]) => {
+  const sources = Object.keys(stats.by_source).length;
+  stage("st-index", `${stats.total} jobs · ${sources} source${sources === 1 ? "" : "s"}`, stats.total ? "on" : "warn");
+  if (!health.llm) stage("st-rank", "no LLM key: vector order only", "warn");
+}).catch(() => stage("st-index", "index unavailable", "warn"));
 </script>
 </body>
 </html>

@@ -187,6 +187,19 @@ def test_agent_is_told_the_ids_of_jobs_it_showed_last(index, memory):
     assert "t:py |" not in llm.chat_calls[0][0]["content"]
 
 
+def test_jobs_named_in_the_reply_come_first_and_are_marked(index, memory):
+    sid = memory.create_session()
+    llm = FakeLLM(chat_replies=[
+        tool_call("search_jobs", query="python engineer data"),
+        # Typographic hyphen and different case, as real models write them.
+        {"role": "assistant", "content": "Best fit: data analyst \u2013 NUMBERS. It uses SQL."},
+    ])
+    result = run_agent(llm, memory, index, sid, "what fits me?")
+    assert len(result["jobs"]) > 1
+    assert result["jobs"][0]["id"] == "t:data" and result["jobs"][0]["recommended"] is True
+    assert [job["recommended"] for job in result["jobs"][1:]] == [False] * (len(result["jobs"]) - 1)
+
+
 def test_search_results_for_the_model_leave_out_urls(index, memory):
     sid = memory.create_session()
     llm = FakeLLM(chat_replies=[

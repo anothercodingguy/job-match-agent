@@ -11,6 +11,7 @@ Memory is what makes later turns better: preferences and dismissed jobs are
 written to SQLite and applied to every later search in the session.
 """
 import json
+import re
 
 from .index import JobIndex
 from .llm import LLM, LLMError
@@ -187,6 +188,19 @@ class ToolBox:
         return {"dismissed": job_id}
 
 
+def _squash(text: str) -> str:
+    """Lower-case letters and digits only, so 'Full‑Stack Developer' matches 'Full-Stack Developer'."""
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+def _named_in(reply: str, job: Job) -> bool:
+    """True when the reply names this job: its title, and its company's first word."""
+    text = _squash(reply)
+    title = _squash(job.title)
+    company = _squash(job.company.split()[0]) if job.company.split() else ""
+    return bool(title) and title in text and (not company or company in text)
+
+
 def _context(memory: Memory, session_id: str) -> str:
     profile = memory.get_profile(session_id)
     prefs = memory.get_preferences(session_id)
@@ -268,4 +282,8 @@ def run_agent(llm: LLM | None, memory: Memory, index: JobIndex, session_id: str,
         note + reply,
         jobs=[{"id": job.id, "title": job.title, "company": job.company} for job in shown[:MAX_REMEMBERED_JOBS]],
     )
-    return {"reply": reply, "jobs": [job.brief() for job in shown], "steps": steps}
+    # Searches return more jobs than the reply recommends. Mark the ones it names and
+    # put them first, so the UI can lead with them.
+    briefs = [{**job.brief(), "recommended": _named_in(reply, job)} for job in shown]
+    briefs.sort(key=lambda brief: not brief["recommended"])
+    return {"reply": reply, "jobs": briefs, "steps": steps}
