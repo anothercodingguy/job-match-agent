@@ -1,3 +1,5 @@
+import pytest
+
 from app.embed import HashEmbedder
 from app.index import JobIndex
 from app.schemas import Job
@@ -66,3 +68,55 @@ def test_content_hash_ignores_fields_that_are_not_embedded():
     assert job.content_hash() == job.model_copy(update={"url": "https://example.com/x"}).content_hash()
     assert job.content_hash() != job.model_copy(update={"title": "Senior Python Engineer"}).content_hash()
     assert isinstance(Job.model_validate(job.model_dump()), Job)
+
+
+# --- vectors made at build time (CachedEmbedder) ---
+
+class CountingEmbedder(HashEmbedder):
+    def __init__(self):
+        super().__init__()
+        self.embedded: list[str] = []
+
+    def embed(self, texts):
+        self.embedded += texts
+        return super().embed(texts)
+
+
+def test_cached_embedder_only_embeds_what_is_missing(tmp_path):
+    from app.embed import CachedEmbedder, save_vectors
+
+    path = str(tmp_path / "vectors.json")
+    assert save_vectors(path, HashEmbedder(), ["known one", "known two"]) == 2
+
+    inner = CountingEmbedder()
+    cached = CachedEmbedder.from_file(inner, path)
+    vectors = cached.embed(["known one", "new text", "known two"])
+
+    assert inner.embedded == ["new text"]  # the model ran for one text, not three
+    assert (cached.hits, cached.misses) == (2, 1)
+    # Saved vectors are rounded to 6 places, so compare loosely.
+    for got, want in zip(vectors, HashEmbedder().embed(["known one", "new text", "known two"])):
+        assert got == pytest.approx(want, abs=1e-6)
+
+
+def test_index_starts_from_saved_vectors_without_running_the_model(tmp_path):
+    from app.embed import CachedEmbedder, save_vectors
+
+    path = str(tmp_path / "vectors.json")
+    save_vectors(path, HashEmbedder(), [job.text() for job in JOBS])
+    inner = CountingEmbedder()
+    idx = JobIndex(CachedEmbedder.from_file(inner, path))
+    idx.sync(JOBS)
+
+    assert inner.embedded == []  # every job came from the file
+    assert idx.search("python fastapi backend", limit=1)[0][0].id == "t:py"
+    assert inner.embedded == ["python fastapi backend"]  # only the query was embedded
+
+
+def test_saved_vectors_from_another_model_size_are_ignored(tmp_path):
+    from app.embed import CachedEmbedder, save_vectors
+
+    path = str(tmp_path / "vectors.json")
+    save_vectors(path, HashEmbedder(64), ["some text"])
+    cached = CachedEmbedder.from_file(HashEmbedder(256), path)
+    assert cached.vectors == {} and len(cached.embed(["some text"])[0]) == 256

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "python -m app.prebuild",
+  "functions": {
+    "app/main.py": {
+      "excludeFiles": "{tests/**,evals/**,.venv/**,.claude/**,data/qdrant/**,data/app.db}"
+    }
+  }
+}

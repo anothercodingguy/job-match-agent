@@ -1,0 +1,9 @@
+# Never upload secrets or local state. The build step recreates data/.
+.env
+.env.*
+!.env.example
+.venv
+.claude
+.pytest_cache
+__pycache__
+data

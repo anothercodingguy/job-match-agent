@@ -7,8 +7,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .agent import run_agent
-from .config import settings
-from .embed import FastEmbedder
+from .config import ON_VERCEL, settings
+from .embed import CachedEmbedder, FastEmbedder
 from .index import JobIndex
 from .ingest import load_jobs, save_jobs
 from .llm import LLM, ChatLLM
@@ -42,10 +42,16 @@ def _build_index() -> JobIndex:
 
     if settings.qdrant_url:
         client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key or None)
+    elif settings.qdrant_path == ":memory:":
+        client = QdrantClient(":memory:")
     else:
         Path(settings.qdrant_path).mkdir(parents=True, exist_ok=True)
         client = QdrantClient(path=settings.qdrant_path)
-    return JobIndex(FastEmbedder(settings.embed_model), client)
+    embedder = FastEmbedder(settings.embed_model, settings.model_dir)
+    if Path(settings.vectors_path).exists():
+        # Vectors made at build time: startup then needs no model run for known jobs.
+        embedder = CachedEmbedder.from_file(embedder, settings.vectors_path)
+    return JobIndex(embedder, client)
 
 
 def create_app(llm: LLM | None = None, index: JobIndex | None = None, memory: Memory | None = None) -> FastAPI:
@@ -135,13 +141,16 @@ def create_app(llm: LLM | None = None, index: JobIndex | None = None, memory: Me
         """Re-download the job sources and sync the index. At most once every 30 minutes."""
         if settings.admin_token and x_admin_token != settings.admin_token:
             raise HTTPException(403, "admin token required")
+        if ON_VERCEL and not settings.admin_token:
+            # A refresh there would only change one short-lived instance's memory.
+            raise HTTPException(403, "refresh is off on this deployment; the index is rebuilt at each deploy")
         waited = time.monotonic() - app.state.last_refresh
         if app.state.last_refresh and waited < REFRESH_INTERVAL_SECONDS:
             raise HTTPException(429, f"refreshed {int(waited)}s ago; try again later")
         app.state.last_refresh = time.monotonic()
         jobs, complete, errors = fetch_all()
         app.state.last_sync = app.state.index.sync(jobs, complete)
-        if jobs:
+        if jobs and not ON_VERCEL:  # the disk is read-only there
             save_jobs(settings.jobs_path, jobs, complete)
         return {"sync": app.state.last_sync, "errors": errors}
 

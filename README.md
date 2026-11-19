@@ -31,6 +31,8 @@ chat message ──> agent.py: LLM <──> tools (search, get job, save prefere
 | `app/llm.py` | Client for OpenAI-compatible chat APIs: JSON mode, tool calls, retries with backoff, `Retry-After`, model fallback |
 | `app/profile.py` | Resume to `Profile`, with one repair attempt and a keyword fallback |
 | `app/index.py` | Qdrant index: `sync()` and filtered `search()` |
+| `app/embed.py` | Embedders: MiniLM through fastembed, a hashing baseline, and a wrapper that reuses vectors saved at build time |
+| `app/prebuild.py` | Build step: download listings, embed them, save the vectors and the model files |
 | `app/sources.py` | Fetches and normalises listings from Arbeitnow, Remotive, Jobicy and Himalayas |
 | `app/rank.py` | Retrieval, then LLM reranking with reasons and gaps |
 | `app/agent.py` | Tool-calling loop, capped at 5 tool rounds and 2 searches per turn |
@@ -48,7 +50,21 @@ cp .env.example .env            # add GROQ_API_KEY (optional: the app runs witho
 
 Open http://localhost:8000. The first start embeds every job, which takes about half a minute; later starts only embed what changed.
 
+`python -m app.prebuild` is optional locally. It does the download and the embedding ahead of time, so the app starts in about a second instead of half a minute.
+
 Any OpenAI-compatible endpoint can be used by setting `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODELS`. Set `QDRANT_URL` to use a Qdrant server instead of the local on-disk index.
+
+## Deployment (Vercel)
+
+The app runs as one Vercel Function. Vercel's disk is read-only apart from `/tmp`, and instances start cold, so three things differ from a local run:
+
+- **The index is built at deploy time.** [`vercel.json`](vercel.json) runs `python -m app.prebuild` as the build command. It fetches the listings, embeds them and saves the vectors and the model files into the bundle. At startup the index is filled from the saved vectors, with no model run. In a local simulation of these conditions startup took 1.0 s, against about 30 s when every job is embedded at startup.
+- **The vector index is in memory**, rebuilt from those vectors on each cold start.
+- **SQLite lives in `/tmp`.** A session lasts as long as the instance that holds it. When Vercel recycles the instance, the session is gone and the page starts a new one.
+
+Listings are as fresh as the last deploy. `POST /api/refresh` is turned off there, because it would only change one short-lived instance.
+
+Set `GROQ_API_KEY` in the Vercel project's environment variables. Without it the app runs in fallback mode.
 
 ## API
 
@@ -94,10 +110,10 @@ Reranking raised precision@5 in 11 cases, lowered it in 1 (machine learning, 1.0
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q   # 48 tests, no network or API key needed
+.venv/bin/python -m pytest -q   # 51 tests, no network or API key needed
 ```
 
-The tests use a scripted fake LLM and a hashing embedder. They cover index sync, search filters, LLM retries and model fallback, profile repair and fallback, reranking (including ids the model invents), the agent loop and its limits, memory, the HTTP API, the source parsers and the rerank eval's scoring.
+The tests use a scripted fake LLM and a hashing embedder. They cover index sync, search filters, vectors reused from the build step, LLM retries and model fallback, profile repair and fallback, reranking (including ids the model invents), the agent loop and its limits, memory, the HTTP API, the source parsers and the rerank eval's scoring.
 
 ## Checked against a real model
 
@@ -125,7 +141,7 @@ These checks are a handful of manual runs, not a measured success rate.
 - The chat panel lists every job the searches returned, not only the ones the reply recommends.
 - Search always returns its 6 nearest jobs, even when none is a good match. Narrow filters (remote only, one city) on 841 listings often leave few good ones.
 
-- Sessions have no login; a session id is a random token kept in the browser.
+- Sessions have no login; a session id is a random token kept in the browser. On Vercel they do not survive an instance restart (see Deployment).
 - The embedding model is English-only, and many Arbeitnow listings are in German.
 - Location filtering is a substring match on the listing's location text.
 - The eval labels come from title regexes, not human judgement.
