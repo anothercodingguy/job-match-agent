@@ -7,6 +7,10 @@ Two calls are used in this project:
 Failure handling: each model gets a few attempts with exponential backoff on
 rate limits, server errors and network errors. If a model keeps failing, or
 rejects the request outright, the next model in the list is tried.
+
+Rate limits (HTTP 429) usually come with a Retry-After header saying how many
+seconds to wait. A short wait is honoured. A long one means this model will
+not answer in time for a web request, so the next model is tried at once.
 """
 import json
 import time
@@ -26,7 +30,16 @@ class LLM(Protocol):
 
 
 class _Retryable(Exception):
-    pass
+    def __init__(self, message: str, wait: float | None = None):
+        super().__init__(message)
+        self.wait = wait  # seconds the server asked us to wait, if it said
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    try:
+        return max(0.0, float(response.headers.get("retry-after", "")))
+    except ValueError:
+        return None
 
 
 class ChatLLM:
@@ -39,6 +52,7 @@ class ChatLLM:
         timeout: float = 30.0,
         max_retries: int = 2,
         backoff: float = 1.0,
+        max_wait: float = 5.0,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ):
@@ -47,6 +61,7 @@ class ChatLLM:
         self.models = models
         self.max_retries = max_retries
         self.backoff = backoff
+        self.max_wait = max_wait  # longest Retry-After worth sleeping through
         self._sleep = sleep
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"),
@@ -61,7 +76,14 @@ class ChatLLM:
             for attempt in range(self.max_retries + 1):
                 try:
                     response = self._client.post("/chat/completions", json={**payload, "model": model})
-                    if response.status_code == 429 or response.status_code >= 500:
+                    if response.status_code == 429:
+                        wait = _retry_after(response)
+                        if wait is not None and wait > self.max_wait:
+                            # Retrying sooner cannot work, and waiting is too slow: next model.
+                            last_error = LLMError(f"{model}: rate limited, retry after {wait:.0f}s")
+                            break
+                        raise _Retryable(f"{model}: HTTP 429", wait)
+                    if response.status_code >= 500:
                         raise _Retryable(f"{model}: HTTP {response.status_code}")
                     if response.status_code >= 400:
                         # Bad request or unknown model: retrying won't help, try the next model.
@@ -71,7 +93,8 @@ class ChatLLM:
                 except (_Retryable, httpx.TransportError) as exc:
                     last_error = exc
                     if attempt < self.max_retries:
-                        self._sleep(self.backoff * (2**attempt))
+                        wait = getattr(exc, "wait", None)
+                        self._sleep(wait if wait is not None else self.backoff * (2**attempt))
                 except (KeyError, IndexError, ValueError) as exc:
                     last_error = LLMError(f"{model}: unexpected response shape: {exc}")
                     break

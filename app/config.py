@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.groq.com/openai/v1"
     llm_api_key: str = Field("", validation_alias=AliasChoices("LLM_API_KEY", "GROQ_API_KEY"))
     # Tried in order: if the first model keeps failing, the next one is used.
-    llm_models: str = "llama-3.3-70b-versatile,llama-3.1-8b-instant"
+    llm_models: str = "openai/gpt-oss-120b,openai/gpt-oss-20b"
 
     # Empty QDRANT_URL means an on-disk local index at QDRANT_PATH.
     qdrant_url: str = ""

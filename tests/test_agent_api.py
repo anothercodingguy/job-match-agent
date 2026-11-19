@@ -38,6 +38,25 @@ def test_messages_come_back_in_order_and_sessions_are_separate(memory):
     assert [m["content"] for m in memory.recent_messages(b)] == ["other"]
 
 
+def test_old_database_without_jobs_column_is_upgraded(tmp_path):
+    import sqlite3
+
+    path = str(tmp_path / "old.db")
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        "CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, profile_json TEXT);"
+        "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, "
+        "role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL);"
+    )
+    conn.close()
+    store = Memory(path)
+    sid = store.create_session()
+    store.add_message(sid, "assistant", "one job", jobs=[{"id": "t:py", "title": "T", "company": "C"}])
+    store.add_message(sid, "user", "thanks")
+    assert store.last_shown_jobs(sid) == [{"id": "t:py", "title": "T", "company": "C"}]
+    assert store.recent_messages(sid)[-1] == {"role": "user", "content": "thanks"}
+
+
 def test_profile_round_trip_and_feedback(memory, tmp_path):
     sid = memory.create_session()
     assert memory.get_profile(sid) is None
@@ -85,6 +104,24 @@ def test_agent_remembers_across_turns(index, memory):
     assert "Not interested in the Acme job" in [m["content"] for m in system_and_history]
 
 
+def test_stored_reply_records_what_the_turn_changed(index, memory):
+    sid = memory.create_session()
+    result = run_agent(FakeLLM(chat_replies=[
+        tool_call("save_preference", key="remote_only", value="true"),
+        tool_call("dismiss_job", call_id="c2", job_id="t:py"),
+        tool_call("dismiss_job", call_id="c3", job_id="t:nope"),  # fails, so it is not recorded
+        {"role": "assistant", "content": "Done."},
+    ]), memory, index, sid, "remote only, and hide the Acme job")
+    assert result["reply"] == "Done."  # the user sees the plain reply
+    # The next turn's history shows the request was already carried out.
+    assert memory.recent_messages(sid)[-1]["content"] == (
+        "(Done this turn: saved preference remote_only = true; hid Junior Python Backend Engineer at Acme.)\nDone."
+    )
+    # A turn that changes nothing is stored as it is.
+    run_agent(FakeLLM(chat_replies=[{"role": "assistant", "content": "Hello."}]), memory, index, sid, "hi")
+    assert memory.recent_messages(sid)[-1]["content"] == "Hello."
+
+
 def test_agent_returns_tool_errors_to_the_model(index, memory):
     sid = memory.create_session()
     llm = FakeLLM(chat_replies=[
@@ -104,6 +141,86 @@ def test_agent_stops_after_max_steps(index, memory):
     llm = FakeLLM(chat_replies=[tool_call("search_jobs", query="python")] * 10)
     result = run_agent(llm, memory, index, sid, "loop forever")
     assert len(result["steps"]) == 5 and "ran out of steps" in result["reply"]
+
+
+def test_agent_must_answer_without_tools_when_steps_run_out(index, memory):
+    sid = memory.create_session()
+    llm = FakeLLM(chat_replies=[tool_call("search_jobs", query="python")] * 5 + [
+        {"role": "assistant", "content": "Best I found: the Acme backend role."},
+    ])
+    result = run_agent(llm, memory, index, sid, "keep searching")
+    assert len(result["steps"]) == 5 and result["reply"].startswith("Best I found")
+    # Five calls offered the tools. The sixth offered none and told the model to answer.
+    assert all(llm.chat_tools[:5]) and llm.chat_tools[5] is None
+    assert "Do not call any tool" in llm.chat_calls[5][-1]["content"]
+
+
+def test_agent_says_so_when_the_forced_answer_also_fails(index, memory):
+    sid = memory.create_session()
+    llm = FakeLLM(chat_replies=[tool_call("search_jobs", query="python")] * 5 + [LLMError("tool_use_failed")])
+    result = run_agent(llm, memory, index, sid, "keep searching")
+    # Not the "model unavailable" fallback: the searches did run, so their jobs are returned.
+    assert "ran out of steps" in result["reply"] and result["jobs"] and len(result["steps"]) == 5
+
+
+def test_agent_is_told_the_ids_of_jobs_it_showed_last(index, memory):
+    sid = memory.create_session()
+    run_agent(FakeLLM(chat_replies=[
+        tool_call("search_jobs", query="python fastapi backend"),
+        {"role": "assistant", "content": "Try the Junior Python Backend Engineer role at Acme."},
+    ]), memory, index, sid, "backend jobs please")
+    assert "t:py" in {job["id"] for job in memory.last_shown_jobs(sid)}
+
+    # Next turn: the id is in the model's context, so it can dismiss without searching again.
+    llm = FakeLLM(chat_replies=[
+        tool_call("dismiss_job", job_id="t:py"),
+        {"role": "assistant", "content": "Hidden."},
+    ])
+    result = run_agent(llm, memory, index, sid, "hide the Acme one")
+    system_prompt = llm.chat_calls[0][0]["content"]
+    assert "t:py | Junior Python Backend Engineer | Acme" in system_prompt
+    assert result["steps"] == ["dismiss_job"] and "t:py" in memory.job_ids(sid, "dismissed")
+
+    # A dismissed job is no longer offered as something to act on.
+    llm = FakeLLM(chat_replies=[{"role": "assistant", "content": "Anything else?"}])
+    run_agent(llm, memory, index, sid, "thanks")
+    assert "t:py |" not in llm.chat_calls[0][0]["content"]
+
+
+def test_search_results_for_the_model_leave_out_urls(index, memory):
+    sid = memory.create_session()
+    llm = FakeLLM(chat_replies=[
+        tool_call("search_jobs", query="python"),
+        {"role": "assistant", "content": "ok"},
+    ])
+    result = run_agent(llm, memory, index, sid, "python jobs")
+    tool_result = json.loads(llm.chat_calls[-1][-1]["content"])
+    assert tool_result["jobs"] and all("url" not in job and "id" in job for job in tool_result["jobs"])
+    assert all("url" in job for job in result["jobs"])  # the UI still gets links
+
+
+def test_agent_search_limit_is_enforced_in_code(index, memory):
+    sid = memory.create_session()
+    llm = FakeLLM(chat_replies=[
+        tool_call("search_jobs", query="python backend"),
+        tool_call("search_jobs", call_id="c2", query="python backend developer"),
+        tool_call("search_jobs", call_id="c3", query="python backend engineer"),
+        {"role": "assistant", "content": "The Acme role is the closest."},
+    ])
+    result = run_agent(llm, memory, index, sid, "backend jobs")
+    tool_results = [json.loads(m["content"]) for m in llm.chat_calls[-1] if m["role"] == "tool"]
+    assert "jobs" in tool_results[0] and "jobs" in tool_results[1]
+    assert "Search limit" in tool_results[2]["error"]  # the third search did not run
+    assert result["reply"].startswith("The Acme role")
+
+
+def test_agent_keeps_finished_tool_calls_when_the_model_fails_midway(index, memory):
+    sid = memory.create_session()
+    llm = FakeLLM(chat_replies=[tool_call("dismiss_job", job_id="t:py"), LLMError("rate limited")])
+    result = run_agent(llm, memory, index, sid, "hide the Acme one")
+    assert result["steps"] == ["dismiss_job"]  # no plain search on "hide the Acme one"
+    assert "t:py" in memory.job_ids(sid, "dismissed")
+    assert "partway" in result["reply"] and result["jobs"] == []
 
 
 def test_agent_without_llm_falls_back_to_plain_search(index, memory):

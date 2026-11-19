@@ -39,7 +39,8 @@ def evaluate(index: JobIndex, cases: list[dict], relevant_ids: dict[str, set[str
     return out
 
 
-def main() -> None:
+def load_snapshot() -> tuple[list[Job], list[dict], dict[str, set[str]], list[str]]:
+    """The frozen listings, the usable cases, the relevant job ids per case, and the skipped cases."""
     jobs = [Job.model_validate(item) for item in json.loads((HERE / "jobs_snapshot.json").read_text())["jobs"]]
     all_cases = json.loads((HERE / "cases.json").read_text())
     relevant_ids, cases, skipped = {}, [], []
@@ -51,6 +52,11 @@ def main() -> None:
             continue
         relevant_ids[case["name"]] = ids
         cases.append(case)
+    return jobs, cases, relevant_ids, skipped
+
+
+def main() -> None:
+    jobs, cases, relevant_ids, skipped = load_snapshot()
 
     results = {}
     for label, embedder in (("semantic", FastEmbedder()), ("keyword", HashEmbedder(1024))):

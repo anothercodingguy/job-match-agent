@@ -2,7 +2,8 @@
 
 Tables:
   sessions     one row per visitor session, with the structured profile as JSON
-  messages     the user/assistant turns of the chat, in order
+  messages     the user/assistant turns of the chat, in order; an assistant
+               row also keeps the jobs it showed (id, title, company) as JSON
   preferences  key/value facts the agent saved (remote only, location, ...)
   feedback     jobs the user saved or dismissed; dismissed jobs are not shown again
 
@@ -28,7 +29,8 @@ CREATE TABLE IF NOT EXISTS messages (
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     role       TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content    TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    jobs_json  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (session_id, id);
 CREATE TABLE IF NOT EXISTS preferences (
@@ -63,6 +65,9 @@ class Memory:
         self.db_path = db_path
         with self._conn() as conn:
             conn.executescript(SCHEMA)
+            # A database made before jobs_json existed: add the column in place.
+            if "jobs_json" not in {row[1] for row in conn.execute("PRAGMA table_info(messages)")}:
+                conn.execute("ALTER TABLE messages ADD COLUMN jobs_json TEXT")
 
     @contextmanager
     def _conn(self):
@@ -98,12 +103,22 @@ class Memory:
         return Profile.model_validate_json(row[0]) if row and row[0] else None
 
     # chat history
-    def add_message(self, session_id: str, role: str, content: str) -> None:
+    def add_message(self, session_id: str, role: str, content: str, jobs: list[dict] | None = None) -> None:
         with self._conn() as conn:
             conn.execute(
-                "INSERT INTO messages (session_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-                (session_id, role, content, _now()),
+                "INSERT INTO messages (session_id, role, content, created_at, jobs_json) VALUES (?, ?, ?, ?, ?)",
+                (session_id, role, content, _now(), json.dumps(jobs) if jobs else None),
             )
+
+    def last_shown_jobs(self, session_id: str) -> list[dict]:
+        """The jobs from the most recent assistant message that showed any."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT jobs_json FROM messages WHERE session_id = ? AND jobs_json IS NOT NULL "
+                "ORDER BY id DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+        return json.loads(row[0]) if row else []
 
     def recent_messages(self, session_id: str, limit: int = 10) -> list[dict]:
         with self._conn() as conn:

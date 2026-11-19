@@ -48,6 +48,31 @@ def test_llm_retries_with_backoff_then_succeeds():
     assert slept == [1.0, 2.0]  # exponential backoff
 
 
+def test_llm_waits_as_long_as_a_short_retry_after_says():
+    attempts = []
+
+    def handler(request):
+        attempts.append(json.loads(request.content)["model"])
+        return httpx.Response(429, headers={"retry-after": "2"}) if len(attempts) < 2 else ok('{"a": 1}')
+
+    llm, slept = make_llm(handler)
+    assert llm.json([{"role": "user", "content": "hi"}]) == {"a": 1}
+    assert attempts == ["big", "big"] and slept == [2.0]
+
+
+def test_llm_moves_to_the_next_model_when_retry_after_is_long():
+    attempts = []
+
+    def handler(request):
+        model = json.loads(request.content)["model"]
+        attempts.append(model)
+        return httpx.Response(429, headers={"retry-after": "23"}) if model == "big" else ok('{"from": "small"}')
+
+    llm, slept = make_llm(handler)
+    assert llm.json([{"role": "user", "content": "hi"}]) == {"from": "small"}
+    assert attempts == ["big", "small"] and slept == []  # no pointless retries, no sleeping
+
+
 def test_llm_falls_back_to_next_model():
     def handler(request):
         model = json.loads(request.content)["model"]

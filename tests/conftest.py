@@ -17,6 +17,7 @@ class FakeLLM:
         self.chat_replies = list(chat_replies)
         self.json_calls: list[list[dict]] = []
         self.chat_calls: list[list[dict]] = []
+        self.chat_tools: list[list[dict] | None] = []
 
     def json(self, messages):
         self.json_calls.append(list(messages))
@@ -29,6 +30,7 @@ class FakeLLM:
 
     def chat(self, messages, tools=None):
         self.chat_calls.append(list(messages))
+        self.chat_tools.append(tools)
         if not self.chat_replies:
             raise LLMError("no scripted chat reply left")
         reply = self.chat_replies.pop(0)
