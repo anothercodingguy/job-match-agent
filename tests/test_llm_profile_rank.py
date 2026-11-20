@@ -108,6 +108,13 @@ def test_llm_skips_a_rejected_model_without_retrying():
     assert seen == ["big", "small"] and slept == []
 
 
+def test_llm_logs_why_every_model_failed(caplog):
+    llm, _ = make_llm(lambda request: httpx.Response(401, text='{"error": {"message": "Invalid API Key"}}'))
+    with caplog.at_level("WARNING", logger="jobmatch.llm"), pytest.raises(LLMError):
+        llm.json([{"role": "user", "content": "hi"}])
+    assert "HTTP 401" in caplog.text and "Invalid API Key" in caplog.text
+
+
 def test_llm_raises_when_everything_fails_or_json_is_invalid():
     llm, _ = make_llm(lambda request: httpx.Response(500))
     with pytest.raises(LLMError):

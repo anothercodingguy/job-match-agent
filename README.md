@@ -112,7 +112,7 @@ Reranking raised precision@5 in 11 cases, lowered it in 1 (machine learning, 1.0
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q   # 53 tests, no network or API key needed
+.venv/bin/python -m pytest -q   # 54 tests, no network or API key needed
 ```
 
 The tests use a scripted fake LLM and a hashing embedder. They cover index sync, search filters, vectors reused from the build step, LLM retries and model fallback, profile repair and fallback, reranking (including ids the model invents), the agent loop and its limits, memory, the HTTP API, the source parsers and the rerank eval's scoring.

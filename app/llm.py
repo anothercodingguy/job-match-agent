@@ -13,10 +13,15 @@ seconds to wait. A short wait is honoured. A long one means this model will
 not answer in time for a web request, so the next model is tried at once.
 """
 import json
+import logging
 import time
 from typing import Callable, Protocol
 
 import httpx
+
+
+# The app falls back quietly when the model fails, so the reason has to go to the log.
+log = logging.getLogger("jobmatch.llm")
 
 
 class LLMError(Exception):
@@ -104,6 +109,7 @@ class ChatLLM:
                 except (KeyError, IndexError, ValueError) as exc:
                     last_error = LLMError(f"{model}: unexpected response shape: {exc}")
                     break
+        log.warning("all models failed, falling back: %s", last_error)
         raise LLMError(f"all models failed: {last_error}")
 
     def json(self, messages: list[dict]) -> dict:
