@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     qdrant_path: str = ":memory:" if ON_VERCEL else str(ROOT / "data" / "qdrant")
 
     db_path: str = "/tmp/app.db" if ON_VERCEL else str(ROOT / "data" / "app.db")
+    # A Postgres URL. When set, sessions and memory are stored there instead of in SQLite.
+    database_url: str = ""
     jobs_path: str = str(ROOT / "data" / "jobs.json")
     embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     # Written by `python -m app.prebuild`. Both are optional: without them the model is

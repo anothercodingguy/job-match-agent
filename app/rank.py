@@ -50,7 +50,9 @@ def _strings(value, limit: int) -> list[str]:
     return [str(item).strip()[:200] for item in value if str(item).strip()][:limit]
 
 
-def llm_rerank(llm: LLM, profile: Profile, prefs: Preferences, hits: list[tuple[Job, float]]) -> list[Match]:
+def llm_rerank(
+    llm: LLM, profile: Profile, prefs: Preferences, hits: list[tuple[Job, float]], feedback: dict | None = None
+) -> list[Match]:
     """Returns the hits in the model's order. Jobs the model left out keep their vector rank at the end."""
     by_short_id = {f"J{i + 1}": hit for i, hit in enumerate(hits)}
     listing = [
@@ -74,6 +76,7 @@ def llm_rerank(llm: LLM, profile: Profile, prefs: Preferences, hits: list[tuple[
                     {
                         "profile": profile.model_dump(exclude={"source"}),
                         "preferences": prefs.model_dump(),
+                        **({"feedback": feedback} if feedback else {}),
                         "jobs": listing,
                     }
                 ),
@@ -115,6 +118,22 @@ def llm_rerank(llm: LLM, profile: Profile, prefs: Preferences, hits: list[tuple[
     return matches
 
 
+def _feedback_titles(index: JobIndex, liked_ids, disliked_ids, limit: int = 5) -> dict | None:
+    """Titles of saved and rejected jobs, for the reranker. None when there is no feedback."""
+    def titles(ids):
+        jobs = [index.get(job_id) for job_id in sorted(ids)[:limit]]
+        return [f"{job.title} at {job.company}" for job in jobs if job]
+
+    saved, rejected = titles(liked_ids), titles(disliked_ids)
+    if not (saved or rejected):
+        return None  # then the request is exactly the one the rerank eval measured
+    return {
+        "how_to_use": "Jobs this candidate saved and rejected earlier. Prefer jobs like the saved ones and rank jobs like the rejected ones lower.",
+        "saved": saved,
+        "rejected": rejected,
+    }
+
+
 def match_jobs(
     profile: Profile,
     prefs: Preferences,
@@ -124,7 +143,10 @@ def match_jobs(
     k: int = 8,
     pool: int = 12,
     exclude_ids: set[str] | frozenset[str] = frozenset(),
+    liked_ids: set[str] | frozenset[str] = frozenset(),
 ) -> list[Match]:
+    """exclude_ids are the jobs the user hid: left out, and searched away from.
+    liked_ids are the jobs they saved: searched towards."""
     query = build_query(profile, prefs)
     hits = index.search(
         query,
@@ -132,6 +154,8 @@ def match_jobs(
         remote_only=prefs.remote_only,
         location=prefs.location,
         exclude_ids=exclude_ids,
+        liked_ids=liked_ids,
+        disliked_ids=exclude_ids,
     )
     avoid = [word.lower() for word in prefs.avoid_keywords]
     if avoid:
@@ -145,7 +169,7 @@ def match_jobs(
         return []
     if llm is not None:
         try:
-            return llm_rerank(llm, profile, prefs, hits)[:k]
+            return llm_rerank(llm, profile, prefs, hits, _feedback_titles(index, liked_ids, exclude_ids))[:k]
         except LLMError:
             pass
     return [_vector_match(job, score) for job, score in hits][:k]

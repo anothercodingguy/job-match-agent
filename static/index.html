@@ -3,194 +3,217 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Job Match Agent</title>
+<title>Job Match Agent | Suyash Singh</title>
 <meta name="description" content="Paste a resume, get jobs ranked from a live index, then refine by chatting with an agent that remembers what you told it.">
+<script>
+  // Set the theme before the page paints, so it does not flash.
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem("jma_theme"); } catch (e) {}
+    var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.classList.toggle("dark", dark);
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  /* Same tokens as suyash.website, so this reads as part of the same site. */
   :root {
-    --paper:#f3f0e8; --card:#faf8f3; --ink:#17160f; --muted:#6d685c; --line:#c9c3b3; --soft:#e7e2d5;
-    --accent:#d4442a; --accent-ink:#fffaf5; --good:#2c6a4d; --warn:#8f6200; --grid:rgba(23,22,15,.045);
-    --serif:"Instrument Serif", "Iowan Old Style", Georgia, serif;
-    --sans:"Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-    --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --background:#ffffff; --foreground:#171717; --muted:#737373; --muted-light:#f5f5f5; --border:#e5e5e5;
+    --accent:#171717; --accent-foreground:#ffffff; --grid-color:rgba(0,0,0,.04); --nav-bg:rgba(255,255,255,.88);
+    --card-bg:rgba(0,0,0,.02); --card-hover-bg:#f9f9f9; --ok:#15803d; --warn:#a16207;
+    --font-serif:"Instrument Serif", Georgia, serif;
+    --font-sans:"Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper:#0f0e0b; --card:#161511; --ink:#ebe7dc; --muted:#989284; --line:#37342c; --soft:#1f1d18;
-      --accent:#ff6a48; --accent-ink:#1a0b06; --good:#7dc7a2; --warn:#e2b45c; --grid:rgba(235,231,220,.035);
-    }
+  .dark {
+    --background:#0a0a0a; --foreground:#ededed; --muted:#a3a3a3; --muted-light:#171717; --border:#262626;
+    --accent:#fafafa; --accent-foreground:#000000; --grid-color:rgba(255,255,255,.03); --nav-bg:rgba(10,10,10,.88);
+    --card-bg:rgba(255,255,255,.02); --card-hover-bg:#141414; --ok:#4ade80; --warn:#facc15;
   }
-  * { box-sizing:border-box; }
+  *, *::before, *::after { box-sizing:border-box; }
   html { -webkit-text-size-adjust:100%; }
-  body {
-    margin:0; color:var(--ink); font:15px/1.55 var(--sans);
-    background:
-      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 100% 32px,
-      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 32px 100%,
-      var(--paper);
+  body { margin:0; background:var(--background); color:var(--foreground); font:15px/1.6 var(--font-sans); -webkit-font-smoothing:antialiased; overflow-x:hidden; }
+  body::before {
+    content:""; position:fixed; inset:0; z-index:-1; pointer-events:none; background-size:40px 40px;
+    background-image:linear-gradient(to right, var(--grid-color) 1px, transparent 1px), linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px);
+    -webkit-mask-image:linear-gradient(to bottom, black 40%, transparent 100%); mask-image:linear-gradient(to bottom, black 40%, transparent 100%);
   }
-  a { color:inherit; }
-  .wrap { max-width:1180px; margin:0 auto; padding:0 16px; }
-  .mono { font-family:var(--mono); font-size:11.5px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
-
-  /* header */
-  header { padding:28px 0 18px; }
-  .top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
-  .top nav { display:flex; gap:16px; }
-  .top nav a { text-decoration:none; border-bottom:1px dashed var(--line); padding-bottom:1px; }
-  .top nav a:hover { color:var(--accent); border-color:var(--accent); }
-  h1 { font:400 clamp(40px, 7vw, 72px)/.95 var(--serif); letter-spacing:-.02em; margin:14px 0 10px; }
-  h1 em { color:var(--accent); }
-  .lede { max-width:620px; color:var(--muted); margin:0; font-size:16px; }
-
-  /* pipeline strip */
-  .pipeline { display:grid; grid-template-columns:repeat(2, 1fr); margin:22px 0 20px; border:1px dashed var(--line); background:var(--card); }
-  @media (min-width:860px) { .pipeline { grid-template-columns:repeat(4, 1fr); } }
-  .stage { padding:12px 14px; border-right:1px dashed var(--line); border-bottom:1px dashed var(--line); min-width:0; }
-  .stage b { display:block; font:400 20px/1.2 var(--serif); margin-top:2px; }
-  .stage span.state { display:block; font-size:13px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .stage .mono::before { content:""; display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--line); margin-right:7px; vertical-align:1px; transition:background .3s; }
-  .stage.on .mono::before { background:var(--good); }
-  .stage.warn .mono::before { background:var(--warn); }
-  .stage.busy .mono::before { background:var(--accent); animation:pulse 1s ease-in-out infinite; }
-  @keyframes pulse { 50% { opacity:.25; } }
-
-  /* layout */
-  main { display:grid; gap:16px; grid-template-columns:minmax(0, 1fr); padding-bottom:48px; }
-  @media (min-width:940px) { main { grid-template-columns:400px minmax(0, 1fr); align-items:start; } .side { position:sticky; top:14px; } }
-  .side { display:grid; gap:16px; min-width:0; }
-  .panel { background:var(--card); border:1px dashed var(--line); padding:16px; min-width:0; }
-  .panel > header { padding:0 0 10px; display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
-  h2 { font:400 24px/1.1 var(--serif); margin:0; }
-
-  textarea, input[type=text] { width:100%; background:var(--paper); color:var(--ink); border:1px solid var(--line); border-radius:2px; padding:10px 12px; font:14px/1.5 var(--sans); }
-  textarea { min-height:140px; resize:vertical; font-family:var(--mono); font-size:12.5px; }
-  textarea:focus, input:focus, button:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  button { font:500 14px/1 var(--sans); border-radius:2px; border:1px solid var(--line); background:transparent; color:var(--ink); padding:9px 13px; cursor:pointer; transition:background .15s, color .15s, border-color .15s, transform .1s; }
-  button:hover:not(:disabled) { border-color:var(--ink); }
-  button:active:not(:disabled) { transform:translateY(1px); }
-  button.primary { background:var(--ink); color:var(--paper); border-color:var(--ink); }
-  button.primary:hover:not(:disabled) { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
-  button.link { border:0; padding:0; color:var(--muted); text-decoration:underline dashed; text-underline-offset:3px; font-weight:400; }
-  button.link:hover { color:var(--accent); }
-  button:disabled { opacity:.5; cursor:default; }
-  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px; }
-  .note { font-size:13px; color:var(--muted); }
-  .chips { display:flex; flex-wrap:wrap; gap:6px; }
-  .chip { font:11.5px/1 var(--mono); border:1px solid var(--line); padding:5px 8px; border-radius:2px; background:var(--paper); }
-  .chip.memory { border-color:var(--good); color:var(--good); }
-  .flag { font-size:13px; color:var(--warn); border-left:2px solid var(--warn); padding:2px 0 2px 10px; margin:10px 0 0; }
+  a { color:inherit; text-decoration:none; }
+  .mono { font-family:var(--font-mono); font-size:12px; color:var(--muted); }
   [hidden] { display:none !important; }
 
-  /* profile */
-  #profile-head { font:400 21px/1.25 var(--serif); }
-  #profile-meta { margin:4px 0 10px; }
+  /* nav */
+  .top-nav { position:fixed; top:0; left:0; right:0; z-index:50; background:var(--nav-bg); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border-bottom:1px dashed var(--border); }
+  .nav-inner { max-width:1120px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 20px; }
+  .nav-title { font:400 24px/1.2 var(--font-serif); white-space:nowrap; }
+  .nav-links { display:flex; align-items:center; gap:4px; }
+  .nav-link { font-size:14px; color:var(--muted); padding:6px 10px; border-radius:8px; transition:color .15s, background .15s; }
+  .nav-link:hover { color:var(--foreground); background:var(--muted-light); }
+  .icon-btn { width:34px; height:34px; display:grid; place-items:center; border:0; background:transparent; color:var(--muted); border-radius:8px; cursor:pointer; padding:0; }
+  .icon-btn:hover { color:var(--foreground); background:var(--muted-light); }
+  .icon-btn .moon, .dark .icon-btn .sun { display:none; } .dark .icon-btn .moon { display:block; }
+  @media (max-width:560px) { .nav-link.optional { display:none; } }
+
+  .wrap { max-width:1120px; margin:0 auto; padding:0 20px; }
+  .hero { padding:104px 0 28px; }
+  .hero h1 { font:400 clamp(40px, 6.5vw, 64px)/1.02 var(--font-serif); letter-spacing:-.01em; margin:0 0 14px; }
+  .hero h1 em { color:var(--muted); }
+  .hero p { max-width:640px; margin:0; color:var(--muted); font-size:16px; }
+
+  /* pipeline */
+  .pipeline { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); border:1px dashed var(--border); border-radius:12px; overflow:hidden; background:var(--card-bg); margin-bottom:20px; }
+  @media (min-width:860px) { .pipeline { grid-template-columns:repeat(4, minmax(0, 1fr)); } }
+  .stage { padding:14px 16px; border-right:1px dashed var(--border); border-bottom:1px dashed var(--border); margin:0 -1px -1px 0; min-width:0; }
+  .stage b { display:block; font:500 15px/1.3 var(--font-sans); margin:4px 0 1px; }
+  .stage .state { display:block; font-size:13px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--border); margin-right:8px; vertical-align:1px; transition:background .3s; }
+  .stage.on .dot { background:var(--ok); } .stage.warn .dot { background:var(--warn); }
+  .stage.busy .dot { background:var(--foreground); animation:pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:.2; } }
+
+  /* layout */
+  main { display:grid; gap:20px; grid-template-columns:minmax(0, 1fr); padding-bottom:56px; }
+  @media (min-width:940px) { main { grid-template-columns:392px minmax(0, 1fr); align-items:start; } .side { position:sticky; top:72px; } }
+  .side { display:grid; gap:20px; min-width:0; }
+  .card { border:1px dashed var(--border); border-radius:12px; background:var(--card-bg); padding:18px; min-width:0; }
+  .card-head { display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:12px; }
+  h2 { font:400 26px/1.1 var(--font-serif); margin:0; }
+
+  textarea, input[type=text] { width:100%; background:var(--background); color:var(--foreground); border:1px solid var(--border); border-radius:8px; padding:10px 12px; font:14px/1.5 var(--font-sans); transition:border-color .15s; }
+  textarea { min-height:132px; resize:vertical; font:12.5px/1.6 var(--font-mono); }
+  textarea:focus, input:focus { outline:none; border-color:var(--foreground); }
+  button:focus-visible, a:focus-visible { outline:2px solid var(--foreground); outline-offset:2px; }
+  button { font:500 13.5px/1 var(--font-sans); color:var(--foreground); cursor:pointer; }
+  .btn { border:1px solid var(--border); background:var(--background); border-radius:8px; padding:9px 14px; transition:background .15s, border-color .15s, transform .1s; }
+  .btn:hover:not(:disabled) { background:var(--card-hover-bg); border-color:var(--muted); }
+  .btn:active:not(:disabled) { transform:translateY(1px); }
+  .btn.primary { background:var(--accent); color:var(--accent-foreground); border-color:var(--accent); }
+  .btn.primary:hover:not(:disabled) { opacity:.86; background:var(--accent); }
+  .btn.small { padding:6px 10px; font-size:12.5px; color:var(--muted); }
+  .btn.small:hover:not(:disabled) { color:var(--foreground); }
+  .btn.small.on { color:var(--foreground); border-color:var(--foreground); }
+  button:disabled { opacity:.5; cursor:default; }
+  .link { border:0; background:none; padding:0; font:400 12px var(--font-mono); color:var(--muted); text-decoration:underline dashed; text-underline-offset:4px; }
+  .link:hover { color:var(--foreground); }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+  .note { font-size:13px; color:var(--muted); }
+  .tags { display:flex; flex-wrap:wrap; gap:6px; }
+  .tag { font:11.5px/1 var(--font-mono); border:1px dashed var(--border); border-radius:6px; padding:5px 8px; color:var(--muted); white-space:nowrap; }
+  .tag.memory { border-style:solid; color:var(--foreground); }
+  .tag.pick { border-style:solid; border-color:var(--foreground); color:var(--foreground); }
+  .flag { font-size:13px; color:var(--muted); border-left:2px solid var(--warn); padding:2px 0 2px 10px; margin:12px 0 0; }
+
+  #profile-head { font-weight:500; font-size:16px; line-height:1.35; }
+  #profile-meta { margin:4px 0 12px; }
 
   /* chat */
-  #chat-log { display:flex; flex-direction:column; gap:8px; max-height:360px; overflow:auto; margin-bottom:10px; scrollbar-width:thin; }
-  .msg { padding:9px 12px; max-width:92%; white-space:pre-wrap; overflow-wrap:anywhere; font-size:14px; animation:rise .25s ease both; }
-  .msg.user { align-self:flex-end; background:var(--ink); color:var(--paper); }
-  .msg.assistant { align-self:flex-start; background:var(--soft); }
-  .msg.error { align-self:flex-start; border-left:2px solid var(--accent); color:var(--accent); padding-left:10px; }
-  .trace { align-self:flex-start; display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
-  .trace .chip { font-size:10.5px; padding:4px 6px; color:var(--muted); }
-  .trace .arrow { color:var(--line); font-family:var(--mono); font-size:11px; }
-  .typing { align-self:flex-start; display:flex; gap:4px; padding:12px; background:var(--soft); }
-  .typing i { width:6px; height:6px; border-radius:50%; background:var(--muted); animation:pulse 1s ease-in-out infinite; }
+  #chat-log { display:flex; flex-direction:column; gap:8px; max-height:340px; overflow:auto; scrollbar-width:thin; }
+  #chat-log:not(:empty) { margin-bottom:12px; }
+  .msg { padding:9px 12px; border-radius:12px; max-width:92%; white-space:pre-wrap; overflow-wrap:anywhere; font-size:14px; animation:rise .25s ease both; }
+  .msg.user { align-self:flex-end; background:var(--accent); color:var(--accent-foreground); border-bottom-right-radius:4px; }
+  .msg.assistant { align-self:flex-start; background:var(--muted-light); border-bottom-left-radius:4px; }
+  .msg.error { align-self:flex-start; border:1px dashed var(--warn); color:var(--muted); }
+  .trace { align-self:flex-start; display:flex; flex-wrap:wrap; gap:4px; align-items:center; font:10.5px var(--font-mono); color:var(--muted); }
+  .trace .tag { font-size:10.5px; padding:4px 6px; }
+  .typing { align-self:flex-start; display:flex; gap:4px; padding:12px; border-radius:12px; background:var(--muted-light); }
+  .typing i { width:5px; height:5px; border-radius:50%; background:var(--muted); animation:pulse 1s ease-in-out infinite; }
   .typing i:nth-child(2) { animation-delay:.15s; } .typing i:nth-child(3) { animation-delay:.3s; }
+  #suggestions { margin-bottom:10px; } #suggestions button { background:none; cursor:pointer; } #suggestions button:hover { color:var(--foreground); border-color:var(--muted); }
   .ask { display:flex; gap:8px; }
-  #suggestions { margin-bottom:10px; }
-  #suggestions button { font:11.5px/1 var(--mono); padding:6px 8px; color:var(--muted); }
-  #suggestions button:hover { color:var(--accent); border-color:var(--accent); }
 
-  /* matches */
-  .job { display:grid; grid-template-columns:58px minmax(0, 1fr); gap:14px; padding:16px 0; border-top:1px dashed var(--line); animation:rise .4s ease both; }
-  .job:first-child { border-top:0; padding-top:4px; }
-  .job.removing { opacity:0; transform:translateX(12px); transition:opacity .2s, transform .2s; }
-  @keyframes rise { from { opacity:0; transform:translateY(8px); } }
-  .rank { font:11.5px/1 var(--mono); color:var(--muted); padding-top:6px; }
-  .score { font:400 38px/.9 var(--serif); color:var(--ink); }
-  .score + .bar { height:3px; background:var(--soft); margin-top:6px; }
-  .bar i { display:block; height:100%; background:var(--accent); transition:width .6s cubic-bezier(.2,.8,.2,1); }
-  .job h3 { font:600 16px/1.3 var(--sans); margin:0; }
-  .job h3 a { text-decoration:none; background:linear-gradient(var(--accent), var(--accent)) 0 100% / 0 1px no-repeat; transition:background-size .25s; }
-  .job h3 a:hover { background-size:100% 1px; }
-  .where { color:var(--muted); font-size:13.5px; margin-top:1px; }
-  .tag { font:10.5px/1 var(--mono); text-transform:uppercase; letter-spacing:.05em; border:1px solid var(--line); padding:3px 5px; margin-left:6px; color:var(--muted); vertical-align:1px; white-space:nowrap; }
-  .tag.pick { border-color:var(--accent); color:var(--accent); }
-  .why { list-style:none; margin:9px 0 0; padding:0; display:grid; gap:3px; font-size:14px; }
-  .why li { padding-left:20px; position:relative; }
-  .why li::before { position:absolute; left:0; font-family:var(--mono); }
-  .why li.fit::before { content:"+"; color:var(--good); }
+  /* results */
+  .job { display:grid; grid-template-columns:56px minmax(0, 1fr); gap:14px; padding:18px 0; border-top:1px dashed var(--border); animation:rise .35s ease both; }
+  .job:first-child { border-top:0; padding-top:2px; }
+  .job.removing { opacity:0; transform:translateX(10px); transition:opacity .2s, transform .2s; }
+  @keyframes rise { from { opacity:0; transform:translateY(6px); } }
+  .rank { font:12px/1 var(--font-mono); color:var(--muted); padding-top:5px; }
+  .score { font:400 36px/.9 var(--font-serif); }
+  .bar { height:2px; background:var(--border); margin-top:7px; border-radius:2px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--foreground); }
+  .job h3 { font:600 15.5px/1.35 var(--font-sans); margin:0; display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; }
+  .job h3 a:hover { text-decoration:underline; text-underline-offset:3px; }
+  .where { color:var(--muted); font-size:13.5px; margin:2px 0 0; display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; }
+  .why { list-style:none; margin:10px 0 0; padding:0; display:grid; gap:4px; font-size:14px; }
+  .why li { padding-left:18px; position:relative; }
+  .why li::before { position:absolute; left:0; font-family:var(--font-mono); }
+  .why li.fit::before { content:"+"; color:var(--ok); }
   .why li.gap { color:var(--muted); } .why li.gap::before { content:"–"; color:var(--warn); }
-  .job .actions { margin-top:10px; }
-  .job .actions button { font-size:12.5px; padding:6px 9px; color:var(--muted); }
-  .group { margin:18px 0 0; padding-top:12px; border-top:1px solid var(--line); }
-  .empty { padding:36px 8px; text-align:center; color:var(--muted); }
-  .empty b { display:block; font:400 26px/1.2 var(--serif); color:var(--ink); margin-bottom:4px; }
-  .skeleton { height:74px; margin:14px 0; background:linear-gradient(90deg, var(--soft) 25%, var(--card) 37%, var(--soft) 63%) 0 0 / 400% 100%; animation:shimmer 1.3s linear infinite; }
+  .actions { margin-top:12px; display:flex; gap:6px; }
+  .group { margin-top:6px; padding:14px 0 0; border-top:1px solid var(--border); }
+  #nudge { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; border:1px dashed var(--border); border-radius:8px; padding:8px 10px; margin-bottom:12px; font-size:13px; color:var(--muted); }
+  .empty { padding:44px 8px; text-align:center; color:var(--muted); }
+  .empty b { display:block; font:400 28px/1.2 var(--font-serif); color:var(--foreground); margin-bottom:4px; }
+  .skeleton { height:76px; margin:14px 0; border-radius:8px; background:linear-gradient(90deg, var(--muted-light) 25%, var(--card-bg) 37%, var(--muted-light) 63%) 0 0 / 400% 100%; animation:shimmer 1.3s linear infinite; }
   @keyframes shimmer { to { background-position:-100% 0; } }
 
-  footer { border-top:1px dashed var(--line); padding:16px 0 40px; color:var(--muted); font-size:13px; display:flex; gap:8px 20px; flex-wrap:wrap; justify-content:space-between; }
-  footer a:hover { color:var(--accent); }
+  footer { border-top:1px dashed var(--border); padding:18px 0 44px; color:var(--muted); font-size:13px; display:flex; gap:8px 20px; flex-wrap:wrap; justify-content:space-between; }
+  footer a { color:var(--foreground); } footer a:hover { text-decoration:underline; text-underline-offset:3px; }
   @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <div class="top">
-      <span class="mono">Resume → profile → retrieve → rerank → refine</span>
-      <nav class="mono">
-        <a href="https://github.com/anothercodingguy/job-match-agent" target="_blank" rel="noopener noreferrer">Source</a>
-        <a href="https://github.com/anothercodingguy/job-match-agent#evaluation" target="_blank" rel="noopener noreferrer">Evals</a>
-      </nav>
+<nav class="top-nav" aria-label="Site">
+  <div class="nav-inner">
+    <a class="nav-title" href="/">Job Match Agent</a>
+    <div class="nav-links">
+      <a class="nav-link" href="https://github.com/anothercodingguy/job-match-agent" target="_blank" rel="noopener noreferrer">Source</a>
+      <a class="nav-link optional" href="https://github.com/anothercodingguy/job-match-agent#evaluation" target="_blank" rel="noopener noreferrer">Evals</a>
+      <a class="nav-link" href="https://www.suyash.website" target="_blank" rel="noopener noreferrer">Portfolio</a>
+      <button class="icon-btn" id="theme" type="button" aria-label="Switch between light and dark">
+        <svg class="sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        <svg class="moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
     </div>
-    <h1>Job Match <em>Agent</em></h1>
-    <p class="lede">Paste a resume. It becomes a structured profile, the closest jobs are pulled from a live index, a language model reranks them with reasons, and a chat agent with memory refines the list.</p>
+  </div>
+</nav>
+
+<div class="wrap">
+  <header class="hero">
+    <h1>Jobs ranked for you, <em>with reasons.</em></h1>
+    <p>Paste a resume. It becomes a structured profile, the closest jobs are pulled from a live index, a language model reranks them and says why, and a chat agent with memory refines the list.</p>
   </header>
 
   <div class="pipeline" aria-label="What has run so far">
-    <div class="stage" id="st-profile"><span class="mono">01 Profile</span><b>Resume to JSON</b><span class="state">waiting for a resume</span></div>
-    <div class="stage" id="st-index"><span class="mono">02 Retrieve</span><b>Semantic search</b><span class="state">loading index…</span></div>
-    <div class="stage" id="st-rank"><span class="mono">03 Rerank</span><b>Scores with reasons</b><span class="state">not run yet</span></div>
-    <div class="stage" id="st-memory"><span class="mono">04 Remember</span><b>Agent memory</b><span class="state">nothing saved yet</span></div>
+    <div class="stage" id="st-profile"><span class="mono"><i class="dot"></i>01 profile</span><b>Resume to JSON</b><span class="state">waiting for a resume</span></div>
+    <div class="stage" id="st-index"><span class="mono"><i class="dot"></i>02 retrieve</span><b>Semantic search</b><span class="state">loading index…</span></div>
+    <div class="stage" id="st-rank"><span class="mono"><i class="dot"></i>03 rerank</span><b>Scores with reasons</b><span class="state">not run yet</span></div>
+    <div class="stage" id="st-memory"><span class="mono"><i class="dot"></i>04 remember</span><b>Agent memory</b><span class="state">nothing saved yet</span></div>
   </div>
 
   <main>
     <div class="side">
-      <section class="panel">
-        <header><h2>Your resume</h2><button class="link" id="sample" type="button">use a sample</button></header>
-        <label class="mono" for="resume" hidden>Resume text</label>
-        <textarea id="resume" placeholder="Paste resume text here. It is turned into a structured profile. The text itself is not stored."></textarea>
-        <div class="row"><button class="primary" id="build" type="button">Build profile and match</button><span id="status" class="note" role="status" aria-live="polite"></span></div>
+      <section class="card">
+        <div class="card-head"><h2>Your resume</h2><button class="link" id="sample" type="button">use a sample</button></div>
+        <textarea id="resume" aria-label="Resume text" placeholder="Paste resume text here. It is turned into a structured profile. The text itself is not stored."></textarea>
+        <div class="row"><button class="btn primary" id="build" type="button">Build profile and match</button><span id="status" class="note" role="status" aria-live="polite"></span></div>
       </section>
 
-      <section class="panel" id="profile-card" hidden>
-        <header><h2>Profile</h2><span class="mono" id="profile-source"></span></header>
+      <section class="card" id="profile-card" hidden>
+        <div class="card-head"><h2>Profile</h2><span class="mono" id="profile-source"></span></div>
         <div id="profile-head"></div>
         <div class="mono" id="profile-meta"></div>
-        <div class="chips" id="profile-skills"></div>
+        <div class="tags" id="profile-skills"></div>
         <p class="flag" id="profile-flag" hidden>The language model was unavailable or rate-limited, so this profile is a keyword match only.</p>
       </section>
 
-      <section class="panel">
-        <header><h2>Refine by chat</h2><button class="link" id="reset" type="button">start over</button></header>
-        <div class="chips" id="memory-chips" hidden></div>
+      <section class="card">
+        <div class="card-head"><h2>Refine by chat</h2><button class="link" id="reset" type="button">start over</button></div>
+        <div class="tags" id="memory-chips" hidden></div>
         <div id="chat-log" aria-live="polite"></div>
-        <div class="chips" id="suggestions">
-          <button type="button">Remote only, nothing in sales</button>
-          <button type="button">Which backend roles fit me?</button>
-          <button type="button">Hide the first one</button>
+        <div class="tags" id="suggestions">
+          <button class="tag" type="button">Remote only, nothing in sales</button>
+          <button class="tag" type="button">Which backend roles fit me?</button>
+          <button class="tag" type="button">Hide the first one</button>
         </div>
-        <div class="ask"><input type="text" id="chat-input" aria-label="Message to the agent" placeholder="Tell the agent what you want" maxlength="2000"><button id="send" type="button">Send</button></div>
+        <div class="ask"><input type="text" id="chat-input" aria-label="Message to the agent" placeholder="Tell the agent what you want" maxlength="2000"><button class="btn" id="send" type="button">Send</button></div>
       </section>
     </div>
 
-    <section class="panel" id="results">
-      <header><h2 id="results-title">Matches</h2><span class="mono" id="match-mode"></span></header>
+    <section class="card" id="results">
+      <div class="card-head"><h2 id="results-title">Matches</h2><span class="mono" id="match-mode"></span></div>
+      <div id="nudge" hidden><span>Your saved and hidden jobs now steer the search.</span><button class="btn small" id="rerank" type="button">Rank again</button></div>
       <p class="flag" id="rank-flag" hidden>The language model was unavailable or rate-limited, so these are in plain vector-search order, without reasons.</p>
       <div id="matches"><div class="empty"><b>No matches yet.</b>Paste a resume on the left, or use the sample, to see ranked jobs here.</div></div>
     </section>
@@ -198,7 +221,7 @@
 
   <footer>
     <span>Listings from the public APIs of Arbeitnow, Remotive, Jobicy and Himalayas. Every job links to its source.</span>
-    <span>Built by <a href="https://suyash.website" target="_blank" rel="noopener noreferrer">Suyash Singh</a></span>
+    <span>Built by <a href="https://www.suyash.website" target="_blank" rel="noopener noreferrer">Suyash Singh</a></span>
   </footer>
 </div>
 
@@ -234,6 +257,10 @@ function stage(id, text, state = "on") {
   node.className = "stage " + state;
   node.querySelector(".state").textContent = text;
 }
+$("theme").onclick = () => {
+  const dark = document.documentElement.classList.toggle("dark");
+  try { localStorage.setItem("jma_theme", dark ? "dark" : "light"); } catch (e) {}
+};
 
 class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -248,12 +275,13 @@ async function api(path, options = {}) {
   return data;
 }
 
-// --- session: a random id kept in this browser. The server may forget it (a restart,
-// or a new instance on a serverless host), so every call can start a fresh one. ---
+// --- session: a random id kept in this browser. The server may not know it any more
+// (a restart on a host without a lasting database), so every call can start a new one. ---
 let sessionId = null;
 let hasProfile = false;
+let saved = new Set();
 function remember(id) { sessionId = id; try { localStorage.setItem("jma_session", id); } catch (e) {} }
-async function newSession() { remember((await api("/api/session", { method: "POST" })).session_id); hasProfile = false; }
+async function newSession() { remember((await api("/api/session", { method: "POST" })).session_id); hasProfile = false; saved = new Set(); }
 async function ensureSession() {
   if (sessionId) return;
   try { sessionId = localStorage.getItem("jma_session"); } catch (e) {}
@@ -290,27 +318,34 @@ function showProfile(profile) {
   $("profile-meta").textContent = llm
     ? [profile.seniority, profile.years_experience ? profile.years_experience + " yrs experience" : "", (profile.locations || []).join(", ")].filter(Boolean).join(" · ")
     : "";
-  $("profile-skills").replaceChildren(...profile.skills.map((s) => el("span", { className: "chip", textContent: s })));
+  $("profile-skills").replaceChildren(...profile.skills.map((s) => el("span", { className: "tag", textContent: s })));
   stage("st-profile", llm ? `${profile.skills.length} skills, validated JSON` : "keyword fallback (no LLM)", llm ? "on" : "warn");
 }
-function showPrefs(prefs) {
-  const parts = [];
-  if (prefs.remote_only) parts.push("remote only");
-  if (prefs.location) parts.push("location: " + prefs.location);
-  for (const word of prefs.avoid_keywords || []) parts.push("avoid: " + word);
-  if (prefs.role_focus) parts.push("focus: " + prefs.role_focus);
+let prefParts = [];
+function showMemory() {
+  const parts = [...prefParts];
+  if (saved.size) parts.push(`${saved.size} saved job${saved.size === 1 ? "" : "s"}`);
   $("memory-chips").hidden = !parts.length;
-  $("memory-chips").replaceChildren(...parts.map((p) => el("span", { className: "chip memory", textContent: p })));
-  $("memory-chips").style.marginBottom = parts.length ? "10px" : "";
+  $("memory-chips").replaceChildren(...parts.map((p) => el("span", { className: "tag memory", textContent: p })));
+  $("memory-chips").style.marginBottom = parts.length ? "12px" : "";
   stage("st-memory", parts.length ? parts.join(" · ") : "nothing saved yet", parts.length ? "on" : "");
+}
+function showPrefs(prefs) {
+  prefParts = [];
+  if (prefs.remote_only) prefParts.push("remote only");
+  if (prefs.location) prefParts.push("location: " + prefs.location);
+  for (const word of prefs.avoid_keywords || []) prefParts.push("avoid: " + word);
+  if (prefs.role_focus) prefParts.push("focus: " + prefs.role_focus);
+  showMemory();
 }
 
 // --- job cards ---
+const feedback = (job, verdict) => withSession(() => api("/api/feedback", { method: "POST", body: JSON.stringify({ session_id: sessionId, job_id: job.id, verdict }) }));
 function jobCard(job, index, extra = {}) {
   const source = (job.id || "").split(":")[0];
   const title = el("h3", {}, el("a", { href: job.url || "#", target: "_blank", rel: "noopener noreferrer", textContent: job.title }));
   if (job.recommended) title.append(el("span", { className: "tag pick", textContent: "in the reply" }));
-  const where = el("div", { className: "where", textContent: [job.company, job.location || (job.remote ? "Remote" : "")].filter(Boolean).join(" · ") });
+  const where = el("div", { className: "where" }, el("span", { textContent: [job.company, job.location || (job.remote ? "Remote" : "")].filter(Boolean).join(" · ") }));
   if (job.remote) where.append(el("span", { className: "tag", textContent: "remote" }));
   if (source) where.append(el("span", { className: "tag", textContent: source }));
   const body = el("div", {}, title, where);
@@ -318,29 +353,43 @@ function jobCard(job, index, extra = {}) {
   for (const reason of extra.reasons || []) why.append(el("li", { className: "fit", textContent: reason }));
   for (const gap of extra.gaps || []) why.append(el("li", { className: "gap", textContent: gap }));
   if (why.children.length) body.append(why);
-  const dismiss = el("button", { type: "button", textContent: "Not for me" });
+
+  const save = el("button", { type: "button", className: "btn small" + (saved.has(job.id) ? " on" : ""), textContent: saved.has(job.id) ? "Saved" : "Save" });
+  save.onclick = async () => {
+    if (saved.has(job.id)) return;
+    save.disabled = true;
+    try { await feedback(job, "saved"); saved.add(job.id); save.textContent = "Saved"; save.classList.add("on"); showMemory(); nudge(); }
+    catch (e) { save.textContent = "Could not save. Try again"; }
+    save.disabled = false;
+  };
+  const dismiss = el("button", { type: "button", className: "btn small", textContent: "Not for me" });
   dismiss.onclick = async () => {
     dismiss.disabled = true;
     try {
-      await withSession(() => api("/api/feedback", { method: "POST", body: JSON.stringify({ session_id: sessionId, job_id: job.id, verdict: "dismissed" }) }));
+      await feedback(job, "dismissed");
+      saved.delete(job.id); showMemory(); nudge();
       card.classList.add("removing");
       setTimeout(() => card.remove(), 200);
     } catch (e) { dismiss.disabled = false; dismiss.textContent = "Could not hide it. Try again"; }
   };
-  body.append(el("div", { className: "actions" }, dismiss));
+  body.append(el("div", { className: "actions" }, save, dismiss));
   const left = extra.score == null
     ? el("div", { className: "rank", textContent: String(index + 1).padStart(2, "0") })
     : el("div", {}, el("div", { className: "score", textContent: extra.score }), el("div", { className: "bar" }, el("i", { style: `width:${extra.score}%` })));
   const card = el("div", { className: "job" }, left, body);
-  card.style.animationDelay = Math.min(index, 8) * 45 + "ms";
+  card.style.animationDelay = Math.min(index, 8) * 40 + "ms";
   return card;
 }
 function skeletons() { $("matches").replaceChildren(...[0, 1, 2, 3].map(() => el("div", { className: "skeleton" }))); }
+/** After a save or a hide, offer to rank again: feedback shifts the next search. */
+function nudge() { $("nudge").hidden = !hasProfile; }
 
 async function loadMatches() {
   skeletons();
+  $("nudge").hidden = true;
   stage("st-rank", "ranking…", "busy");
   const data = await withSession(() => api(`/api/matches?session_id=${sessionId}&k=8`));
+  saved = new Set(data.saved || []);
   showPrefs(data.preferences);
   const llmRanked = data.matches.some((m) => m.ranked_by === "llm");
   $("results-title").textContent = "Matches";
@@ -351,6 +400,11 @@ async function loadMatches() {
     ? data.matches.map((m, i) => jobCard(m.job, i, m))
     : [el("div", { className: "empty" }, el("b", { textContent: "Nothing matched." }), "Try relaxing your preferences in the chat.")]));
 }
+$("rerank").onclick = async () => {
+  $("rerank").disabled = true;
+  try { await loadMatches(); } catch (e) { $("status").textContent = "Could not rank again: " + e.message; }
+  $("rerank").disabled = false;
+};
 
 $("sample").onclick = () => { $("resume").value = SAMPLE; $("resume").focus(); };
 $("build").onclick = async () => {
@@ -378,7 +432,7 @@ function showChatJobs(jobs) {
   const rest = jobs.filter((job) => !job.recommended);
   $("results-title").textContent = "From the chat";
   $("match-mode").textContent = picked.length ? `${picked.length} named in the reply` : "search results";
-  $("rank-flag").hidden = true;
+  $("rank-flag").hidden = true; $("nudge").hidden = true;
   const nodes = picked.map((job, i) => jobCard(job, i));
   if (picked.length && rest.length) nodes.push(el("div", { className: "group mono", textContent: "Other results from the same searches" }));
   nodes.push(...rest.map((job, i) => jobCard(job, picked.length + i)));
@@ -398,8 +452,8 @@ async function send(preset) {
     if (data.steps.length) {
       const trace = el("div", { className: "trace", title: "Tools the agent called for this message" });
       data.steps.forEach((step, i) => {
-        if (i) trace.append(el("span", { className: "arrow", textContent: "→" }));
-        trace.append(el("span", { className: "chip", textContent: step }));
+        if (i) trace.append("→");
+        trace.append(el("span", { className: "tag", textContent: step }));
       });
       log.append(trace);
     }
@@ -423,7 +477,7 @@ $("reset").onclick = async () => {
   try {
     await newSession();
     $("resume").value = ""; $("status").textContent = "";
-    $("profile-card").hidden = true; $("rank-flag").hidden = true;
+    $("profile-card").hidden = true; $("rank-flag").hidden = true; $("nudge").hidden = true;
     $("chat-log").replaceChildren();
     $("results-title").textContent = "Matches"; $("match-mode").textContent = "";
     $("matches").innerHTML = EMPTY;
@@ -437,9 +491,16 @@ $("reset").onclick = async () => {
 if (new URLSearchParams(location.search).has("demo")) { $("resume").value = SAMPLE; $("build").click(); }
 
 // --- index status ---
+function age(iso) {
+  const hours = (Date.now() - new Date(iso).getTime()) / 36e5;
+  if (!iso || Number.isNaN(hours)) return "";
+  if (hours < 1) return "updated in the last hour";
+  if (hours < 48) return `updated ${Math.floor(hours)} h ago`;
+  return `updated ${Math.floor(hours / 24)} days ago`;
+}
 Promise.all([api("/api/stats"), api("/api/health")]).then(([stats, health]) => {
-  const sources = Object.keys(stats.by_source).length;
-  stage("st-index", `${stats.total} jobs · ${sources} source${sources === 1 ? "" : "s"}`, stats.total ? "on" : "warn");
+  const parts = [`${stats.total} jobs`, age(stats.fetched_at)].filter(Boolean);
+  stage("st-index", parts.join(" · "), stats.total ? "on" : "warn");
   if (!health.llm) stage("st-rank", "no LLM key: vector order only", "warn");
 }).catch(() => stage("st-index", "index unavailable", "warn"));
 </script>

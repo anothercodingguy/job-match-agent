@@ -57,6 +57,14 @@ def test_old_database_without_jobs_column_is_upgraded(tmp_path):
     assert store.recent_messages(sid)[-1] == {"role": "user", "content": "thanks"}
 
 
+def test_postgres_connection_is_reopened_after_the_server_drops_it(memory):
+    if memory.backend != "postgres":
+        pytest.skip("only meaningful on Postgres")
+    sid = memory.create_session()
+    memory._pg.close()  # what an idle timeout on a hosted database looks like
+    assert memory.session_exists(sid)
+
+
 def test_profile_round_trip_and_feedback(memory, tmp_path):
     sid = memory.create_session()
     assert memory.get_profile(sid) is None

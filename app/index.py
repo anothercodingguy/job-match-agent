@@ -24,6 +24,15 @@ from .schemas import Job
 
 ANYWHERE = ("", "worldwide", "anywhere", "global", "remote")
 
+# How far feedback moves a search (the textbook Rocchio weights, not tuned on the evals):
+# towards the average of the jobs the user saved, and a little away from the ones they hid.
+LIKED_WEIGHT = 0.75
+DISLIKED_WEIGHT = 0.15
+
+
+def _mean(vectors: list[list[float]]) -> list[float]:
+    return [sum(column) / len(vectors) for column in zip(*vectors)]
+
 
 def point_id(job_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, job_id))
@@ -113,10 +122,19 @@ class JobIndex:
         remote_only: bool = False,
         location: str = "",
         exclude_ids: set[str] | frozenset[str] = frozenset(),
+        liked_ids: set[str] | frozenset[str] = frozenset(),
+        disliked_ids: set[str] | frozenset[str] = frozenset(),
     ) -> list[tuple[Job, float]]:
+        """Nearest jobs to the query. liked_ids and disliked_ids shift the query vector
+        towards and away from those jobs, so feedback changes what comes back."""
         if not query.strip():
             return []
         vector = self.embedder.embed([query])[0]
+        liked, disliked = self.vectors(liked_ids), self.vectors(disliked_ids)
+        if liked:
+            vector = [q + LIKED_WEIGHT * m for q, m in zip(vector, _mean(liked))]
+        if disliked:
+            vector = [q - DISLIKED_WEIGHT * m for q, m in zip(vector, _mean(disliked))]
         query_filter = None
         if remote_only:
             query_filter = Filter(must=[FieldCondition(key="remote", match=MatchValue(value=True))])
@@ -140,6 +158,13 @@ class JobIndex:
             if len(results) == limit:
                 break
         return results
+
+    def vectors(self, job_ids) -> list[list[float]]:
+        """The stored vectors of these jobs (ids no longer in the index are skipped)."""
+        if not job_ids:
+            return []
+        points = self.client.retrieve(self.collection, ids=[point_id(i) for i in job_ids], with_vectors=True)
+        return [list(point.vector) for point in points if point.vector]
 
     def get(self, job_id: str) -> Job | None:
         points = self.client.retrieve(self.collection, ids=[point_id(job_id)], with_payload=True)

@@ -1,4 +1,5 @@
 import time
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from .agent import run_agent
 from .config import ON_VERCEL, settings
 from .embed import CachedEmbedder, FastEmbedder
 from .index import JobIndex
-from .ingest import load_jobs, save_jobs
+from .ingest import fetched_at, load_jobs, save_jobs
 from .llm import LLM, ChatLLM
 from .memory import Memory
 from .profile import extract_profile
@@ -59,13 +60,14 @@ def create_app(llm: LLM | None = None, index: JobIndex | None = None, memory: Me
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.memory = memory or Memory(settings.db_path)
+        app.state.memory = memory or Memory(settings.db_path, settings.database_url)
         app.state.llm = llm
         if llm is None and settings.llm_api_key:
             app.state.llm = ChatLLM(settings.llm_base_url, settings.llm_api_key, settings.models)
         app.state.index = index or _build_index()
         app.state.last_refresh = 0.0
         app.state.last_sync = None
+        app.state.fetched_at = fetched_at(settings.jobs_path)
         if index is None and Path(settings.jobs_path).exists():
             jobs, complete = load_jobs(settings.jobs_path)
             app.state.last_sync = app.state.index.sync(jobs, complete)
@@ -92,6 +94,8 @@ def create_app(llm: LLM | None = None, index: JobIndex | None = None, memory: Me
             "total": app.state.index.count(),
             "by_source": app.state.index.sources(),
             "last_sync": app.state.last_sync,
+            "fetched_at": app.state.fetched_at,  # when the listings were downloaded
+            "memory": app.state.memory.backend,  # "postgres" (lasting) or "sqlite"
         }
 
     @app.post("/api/session")
@@ -119,8 +123,9 @@ def create_app(llm: LLM | None = None, index: JobIndex | None = None, memory: Me
             app.state.llm,
             k=max(1, min(k, 20)),
             exclude_ids=app.state.memory.job_ids(sid, "dismissed"),
+            liked_ids=app.state.memory.job_ids(sid, "saved"),
         )
-        return {"preferences": prefs, "matches": results}
+        return {"preferences": prefs, "matches": results, "saved": sorted(app.state.memory.job_ids(sid, "saved"))}
 
     @app.post("/api/chat")
     def chat(body: ChatRequest):
@@ -150,6 +155,8 @@ def create_app(llm: LLM | None = None, index: JobIndex | None = None, memory: Me
         app.state.last_refresh = time.monotonic()
         jobs, complete, errors = fetch_all()
         app.state.last_sync = app.state.index.sync(jobs, complete)
+        if jobs:
+            app.state.fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         if jobs and not ON_VERCEL:  # the disk is read-only there
             save_jobs(settings.jobs_path, jobs, complete)
         return {"sync": app.state.last_sync, "errors": errors}

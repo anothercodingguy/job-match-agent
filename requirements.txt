@@ -5,3 +5,4 @@ pydantic==2.14.4
 pydantic-settings==2.16.3
 qdrant-client==1.20.0
 fastembed==0.9.1
+psycopg[binary]==3.3.9

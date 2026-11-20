@@ -90,6 +90,7 @@ SYSTEM_PROMPT = """You are a job search assistant. You help one candidate find j
 - Put only the role and skills in the search query. Remote and location go in remote_only and location, not in the query text.
 - You get at most two searches per message. The results are the closest jobs the index has, so rewording the query returns much the same jobs. Then answer with the best of them.
 - When the user states lasting preferences (remote only, a location, things to avoid, a role focus), call save_preference once for each of them, before searching.
+- A message that only states a preference, with no request to search, still needs save_preference. Save it, then confirm in one line.
 - When the user rejects a job, call dismiss_job with its id. Ids of the jobs shown last are listed below.
 - Keep answers short. For each job you recommend, give the title, the company and one reason it fits this candidate.
 - Write plain text. No Markdown: no asterisks, no headings.
@@ -134,12 +135,16 @@ class ToolBox:
             return {"error": "Search limit for this message reached. Answer now with the jobs already found."}
         self.searches += 1
         prefs = self.memory.get_preferences(self.session_id)
+        dismissed = self.memory.job_ids(self.session_id, "dismissed")
         hits = self.index.search(
             str(query),
             limit=6,
             remote_only=prefs.remote_only if remote_only is None else bool(remote_only),
             location=prefs.location if location is None else str(location),
-            exclude_ids=self.memory.job_ids(self.session_id, "dismissed"),
+            exclude_ids=dismissed,
+            # Feedback from earlier turns steers the search, not only what is hidden.
+            liked_ids=self.memory.job_ids(self.session_id, "saved"),
+            disliked_ids=dismissed,
         )
         avoid = [word.lower() for word in prefs.avoid_keywords]
         jobs = [

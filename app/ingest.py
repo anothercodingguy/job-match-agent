@@ -8,6 +8,7 @@ itself through POST /api/refresh.
 """
 import argparse
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import settings
@@ -18,8 +19,24 @@ from .sources import fetch_all
 def save_jobs(path: str, jobs: list[Job], complete: set[str]) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(
-        json.dumps({"complete_sources": sorted(complete), "jobs": [job.model_dump() for job in jobs]}, indent=1)
+        json.dumps(
+            {
+                # When the listings were downloaded, so the app can say how old its index is.
+                "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "complete_sources": sorted(complete),
+                "jobs": [job.model_dump() for job in jobs],
+            },
+            indent=1,
+        )
     )
+
+
+def fetched_at(path: str) -> str | None:
+    """ISO time the listings in this file were downloaded, if the file records it."""
+    try:
+        return json.loads(Path(path).read_text()).get("fetched_at")
+    except (OSError, ValueError):
+        return None
 
 
 def load_jobs(path: str) -> tuple[list[Job], set[str]]:

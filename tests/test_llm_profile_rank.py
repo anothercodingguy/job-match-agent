@@ -211,3 +211,21 @@ def test_match_applies_preferences_and_exclusions(index):
     prefs = Preferences(remote_only=True, avoid_keywords=["devops"])
     ids = [m.job.id for m in match_jobs(PROFILE, prefs, index, None, k=10, exclude_ids={"t:data"})]
     assert ids and set(ids) <= {"t:ml"}
+
+
+def test_reranker_is_told_about_saved_and_rejected_jobs(index):
+    profile = Profile(skills=["Python"], summary="Builds APIs.")
+    ranking = {"ranking": [{"id": "J1", "score": 80, "reasons": ["fits"], "gaps": []}]}
+
+    llm = FakeLLM(json_replies=[ranking])
+    match_jobs(profile, Preferences(), index, llm, liked_ids={"t:py"}, exclude_ids={"t:mkt"})
+    sent = json.loads(llm.json_calls[0][-1]["content"])
+    assert sent["feedback"]["saved"] == ["Junior Python Backend Engineer at Acme"]
+    assert sent["feedback"]["rejected"] == ["Social Media Marketing Manager at Brandly"]
+    assert "Prefer jobs like the saved ones" in sent["feedback"]["how_to_use"]
+    assert "J" in sent["jobs"][0]["id"] and all(job["title"] != "Social Media Marketing Manager" for job in sent["jobs"])
+
+    # No feedback: the request is exactly what it was before this feature.
+    llm = FakeLLM(json_replies=[ranking])
+    match_jobs(profile, Preferences(), index, llm)
+    assert "feedback" not in json.loads(llm.json_calls[0][-1]["content"])

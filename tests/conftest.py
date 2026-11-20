@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 
@@ -72,6 +73,12 @@ def index():
     return idx
 
 
-@pytest.fixture
-def memory():
+# Set TEST_DATABASE_URL to a throwaway Postgres database to run every memory test on it too.
+BACKENDS = ["sqlite"] + (["postgres"] if os.environ.get("TEST_DATABASE_URL") else [])
+
+
+@pytest.fixture(params=BACKENDS)
+def memory(request):
+    if request.param == "postgres":
+        return Memory(database_url=os.environ["TEST_DATABASE_URL"])
     return Memory(":memory:")

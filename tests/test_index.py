@@ -120,3 +120,25 @@ def test_saved_vectors_from_another_model_size_are_ignored(tmp_path):
     save_vectors(path, HashEmbedder(64), ["some text"])
     cached = CachedEmbedder.from_file(HashEmbedder(256), path)
     assert cached.vectors == {} and len(cached.embed(["some text"])[0]) == 256
+
+
+# --- feedback shifts the search ---
+
+def test_saved_jobs_pull_the_search_towards_them(index):
+    plain = [job.id for job, _ in index.search("engineer", limit=3)]
+    assert plain[0] != "t:mkt"
+    steered = [job.id for job, _ in index.search("engineer", limit=3, liked_ids={"t:mkt"})]
+    assert steered[0] == "t:mkt"
+
+
+def test_hidden_jobs_push_similar_jobs_down(index):
+    def score_of(job_id, **feedback):
+        return dict((job.id, score) for job, score in index.search("python engineer", limit=6, **feedback))[job_id]
+
+    # Hiding the ML job (python, pytorch, llm) lowers the other python job's score.
+    assert score_of("t:py", disliked_ids={"t:ml"}) < score_of("t:py")
+
+
+def test_feedback_for_jobs_that_left_the_index_is_ignored(index):
+    assert index.vectors({"t:gone"}) == []
+    assert index.search("python", limit=2, liked_ids={"t:gone"}, disliked_ids={"t:gone"})

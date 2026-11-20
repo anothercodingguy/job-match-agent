@@ -1,4 +1,10 @@
-"""SQLite storage for what the agent remembers about each session.
+"""Storage for what the agent remembers about each session.
+
+Runs on SQLite (a local file, or in memory for tests) or on Postgres when a
+database URL is given. Postgres is what makes memory last on a host like
+Vercel, where the local disk is wiped whenever an instance stops. The SQL is
+written once: the two differ only in the placeholder (? or %s) and in how an
+auto-incrementing id is declared.
 
 Tables:
   sessions     one row per visitor session, with the structured profile as JSON
@@ -11,6 +17,7 @@ The raw resume text is never stored. Only the structured profile is.
 """
 import json
 import sqlite3
+import threading
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -54,23 +61,66 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+class _Postgres:
+    """Makes a psycopg connection accept the same SQL as sqlite3: ? placeholders."""
+
+    def __init__(self, conn):
+        self.conn = conn
+
+    def execute(self, sql: str, params: tuple = ()):
+        return self.conn.execute(sql.replace("?", "%s"), params)
+
+
 class Memory:
-    def __init__(self, db_path: str = ":memory:"):
+    def __init__(self, db_path: str = ":memory:", database_url: str = ""):
         self._shared = None
+        self._url = database_url
+        self._pg = None
+        self._lock = threading.Lock()
+        self.db_path = db_path
+        if database_url:
+            schema = SCHEMA.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY")
+            with self._conn() as conn:
+                for statement in filter(str.strip, schema.split(";")):
+                    conn.execute(statement)
+            return
         if db_path == ":memory:":
             # One shared connection, otherwise every connect() would see an empty database.
             self._shared = sqlite3.connect(":memory:", check_same_thread=False)
         else:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.db_path = db_path
         with self._conn() as conn:
             conn.executescript(SCHEMA)
             # A database made before jobs_json existed: add the column in place.
             if "jobs_json" not in {row[1] for row in conn.execute("PRAGMA table_info(messages)")}:
                 conn.execute("ALTER TABLE messages ADD COLUMN jobs_json TEXT")
 
+    @property
+    def backend(self) -> str:
+        return "postgres" if self._url else "sqlite"
+
+    def _postgres(self):
+        """One connection, kept open and reopened if the server dropped it.
+
+        Hosted Postgres closes idle connections, so each use starts with a cheap
+        check instead of paying for a new connection (and TLS handshake) every time.
+        """
+        import psycopg
+
+        try:
+            if self._pg is None or self._pg.closed:
+                raise psycopg.OperationalError("not connected")
+            self._pg.execute("SELECT 1")
+        except psycopg.Error:
+            self._pg = psycopg.connect(self._url, autocommit=True, connect_timeout=10)
+        return self._pg
+
     @contextmanager
     def _conn(self):
+        if self._url:
+            with self._lock:  # one connection, so one request at a time uses it
+                yield _Postgres(self._postgres())
+            return
         conn = self._shared or sqlite3.connect(self.db_path)
         conn.execute("PRAGMA foreign_keys = ON")
         try:
